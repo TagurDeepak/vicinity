@@ -1,5 +1,10 @@
+const rawApi = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const cleanApi = rawApi.replace(/\/+$/, '');
+const rawWs = process.env.NEXT_PUBLIC_WS_URL ?? 'http://localhost:4000';
+const cleanWs = rawWs.replace(/\/+$/, '');
+
 export const config = {
-  apiUrl: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000',
-  wsUrl: process.env.NEXT_PUBLIC_WS_URL ?? 'http://localhost:4000',
-  apiBase: `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'}/api/v1`,
+  apiUrl: cleanApi,
+  wsUrl: cleanWs,
+  apiBase: `${cleanApi}/api/v1`,
 };

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import { Button, Card, CardBody, CardHeader, CardTitle, TextField } from '@vicinity/ui';
-import { ApiError, login } from '@/lib/api';
+import { login } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth';
 
 function LoginForm() {
@@ -26,7 +26,7 @@ function LoginForm() {
       setSession(res);
       router.push(redirect);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong');
+      setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
       setLoading(false);
     }
