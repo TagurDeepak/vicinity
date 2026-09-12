@@ -26,6 +26,8 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
   const { workspaceId } = params;
   const { ready } = useRequireAuth();
   const token = useAuthStore((s) => s.accessToken);
+  const [showMembers, setShowMembers] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [currentZone, setCurrentZone] = useState<Zone | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [roomsOpen, setRoomsOpen] = useState(false);
@@ -117,6 +119,7 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
     try {
       const channel = await getOrCreateDm(workspaceId, userId);
       setActiveDm({ id: channel.id, targetName: displayName });
+      setShowChat(true);
     } catch {
       // Degrade gracefully
     }
@@ -215,6 +218,22 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
               ))}
             </select>
           )}
+          <Button
+            variant={showMembers ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={() => setShowMembers((prev) => !prev)}
+            title={showMembers ? 'Hide Members panel' : 'Show Members panel'}
+          >
+            👥 Members
+          </Button>
+          <Button
+            variant={showChat ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={() => setShowChat((prev) => !prev)}
+            title={showChat ? 'Hide Chat panel' : 'Show Chat panel'}
+          >
+            💬 Chat
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => setRoomsOpen(true)}>
             🏢 Rooms
           </Button>
@@ -232,9 +251,24 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
 
       {/* Body */}
       <div className="flex flex-1 gap-3 overflow-hidden p-3">
-        <aside className="hidden w-60 shrink-0 rounded-2xl border border-surface-3 bg-surface-0 p-4 shadow-sm shadow-black/5 md:block">
-          <MembersPanel zones={zones.data ?? []} onStartDm={handleStartDm} />
-        </aside>
+        {showMembers && (
+          <aside className="w-64 shrink-0 rounded-2xl border border-surface-3 bg-surface-0 p-4 shadow-sm shadow-black/5 flex flex-col overflow-hidden animate-in fade-in slide-in-from-left-2">
+            <div className="mb-3 flex items-center justify-between border-b border-surface-2 pb-2">
+              <span className="text-xs font-bold text-ink-700 uppercase tracking-wider">👥 Floor Members</span>
+              <button
+                onClick={() => setShowMembers(false)}
+                className="rounded-lg p-1 text-ink-400 hover:bg-surface-2 hover:text-ink-800 transition text-xs"
+                title="Hide Members panel"
+                aria-label="Hide Members panel"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <MembersPanel zones={zones.data ?? []} onStartDm={handleStartDm} />
+            </div>
+          </aside>
+        )}
 
         <main className="relative flex-1 overflow-hidden rounded-2xl shadow-sm shadow-black/5">
           <OfficeCanvas
@@ -301,26 +335,43 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
           )}
         </main>
 
-        <aside className="hidden w-80 shrink-0 rounded-2xl border border-surface-3 bg-surface-0 p-4 shadow-sm shadow-black/5 lg:block">
-          {activeDm ? (
-            <ChatPanel
-              channelId={activeDm.id}
-              dmTargetName={activeDm.targetName}
-              onSend={sendChat}
-              onCloseDm={() => setActiveDm(null)}
-              onStartDm={handleStartDm}
-            />
-          ) : workspaceChannel ? (
-            <ChatPanel
-              channelId={workspaceChannel.id}
-              channelName="general"
-              onSend={sendChat}
-              onStartDm={handleStartDm}
-            />
-          ) : (
-            <p className="text-sm text-ink-400">Loading chat…</p>
-          )}
-        </aside>
+        {showChat && (
+          <aside className="w-80 shrink-0 rounded-2xl border border-surface-3 bg-surface-0 p-4 shadow-sm shadow-black/5 flex flex-col overflow-hidden animate-in fade-in slide-in-from-right-2">
+            <div className="mb-3 flex items-center justify-between border-b border-surface-2 pb-2">
+              <span className="text-xs font-bold text-ink-700 uppercase tracking-wider">
+                {activeDm ? `💬 Chat with ${activeDm.targetName}` : '💬 General Chat'}
+              </span>
+              <button
+                onClick={() => setShowChat(false)}
+                className="rounded-lg p-1 text-ink-400 hover:bg-surface-2 hover:text-ink-800 transition text-xs"
+                title="Hide Chat panel"
+                aria-label="Hide Chat panel"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              {activeDm ? (
+                <ChatPanel
+                  channelId={activeDm.id}
+                  dmTargetName={activeDm.targetName}
+                  onSend={sendChat}
+                  onCloseDm={() => setActiveDm(null)}
+                  onStartDm={handleStartDm}
+                />
+              ) : workspaceChannel ? (
+                <ChatPanel
+                  channelId={workspaceChannel.id}
+                  channelName="general"
+                  onSend={sendChat}
+                  onStartDm={handleStartDm}
+                />
+              ) : (
+                <p className="text-sm text-ink-400">Loading chat…</p>
+              )}
+            </div>
+          </aside>
+        )}
       </div>
 
       <InviteModal

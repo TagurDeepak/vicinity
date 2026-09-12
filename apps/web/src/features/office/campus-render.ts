@@ -101,12 +101,12 @@ export function drawCampusWalkways(ctx: CanvasRenderingContext2D, s: number): vo
   ctx.strokeStyle = '#cbd5e1';
   ctx.lineWidth = 1.5 * s;
 
-  // Outer Perimeter Path Loop
-  ctx.fillRect(480 * s, 290 * s, 640 * s, 44 * s);
-  ctx.strokeRect(480 * s, 290 * s, 640 * s, 44 * s);
+  // Outer Perimeter Path Loop (extended to connect to Coworking rooms)
+  ctx.fillRect(280 * s, 290 * s, 1040 * s, 44 * s);
+  ctx.strokeRect(280 * s, 290 * s, 1040 * s, 44 * s);
 
-  ctx.fillRect(480 * s, 766 * s, 640 * s, 44 * s);
-  ctx.strokeRect(480 * s, 766 * s, 640 * s, 44 * s);
+  ctx.fillRect(280 * s, 766 * s, 1040 * s, 44 * s);
+  ctx.strokeRect(280 * s, 766 * s, 1040 * s, 44 * s);
 
   ctx.fillRect(480 * s, 290 * s, 44 * s, 520 * s);
   ctx.strokeRect(480 * s, 290 * s, 44 * s, 520 * s);
@@ -114,11 +114,23 @@ export function drawCampusWalkways(ctx: CanvasRenderingContext2D, s: number): vo
   ctx.fillRect(1076 * s, 290 * s, 44 * s, 520 * s);
   ctx.strokeRect(1076 * s, 290 * s, 44 * s, 520 * s);
 
-  // Connector branches into rooms
-  ctx.fillRect(400 * s, 395 * s, 82 * s, 40 * s);
-  ctx.fillRect(400 * s, 635 * s, 82 * s, 40 * s);
-  ctx.fillRect(1118 * s, 395 * s, 84 * s, 40 * s);
-  ctx.fillRect(1118 * s, 635 * s, 84 * s, 40 * s);
+  // Connector branches into Meeting Rooms
+  ctx.fillRect(400 * s, 395 * s, 82 * s, 44 * s);
+  ctx.fillRect(400 * s, 635 * s, 82 * s, 44 * s);
+  ctx.fillRect(1118 * s, 395 * s, 84 * s, 44 * s);
+  ctx.fillRect(1118 * s, 635 * s, 84 * s, 44 * s);
+
+  // Connector branches into Focus Pods
+  ctx.fillRect(575 * s, 260 * s, 60 * s, 32 * s);
+  ctx.fillRect(965 * s, 260 * s, 60 * s, 32 * s);
+  ctx.fillRect(575 * s, 808 * s, 60 * s, 34 * s);
+  ctx.fillRect(965 * s, 808 * s, 60 * s, 34 * s);
+
+  // Connector branches to Outdoor Garden Dining Areas
+  ctx.fillRect(180 * s, 535 * s, 302 * s, 55 * s);
+  ctx.fillRect(1118 * s, 535 * s, 290 * s, 55 * s);
+  ctx.fillRect(785 * s, 25 * s, 40 * s, 267 * s);
+  ctx.fillRect(785 * s, 808 * s, 40 * s, 265 * s);
 
   // Central Plaza (Grand Fountain Square)
   ctx.fillStyle = '#eceff1';

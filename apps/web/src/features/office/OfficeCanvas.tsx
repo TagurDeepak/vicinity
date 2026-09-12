@@ -111,13 +111,15 @@ export function OfficeCanvas({
   const onZoneLeaveRef = useRef(onZoneLeave);
   const onZoneChangeRef = useRef(onZoneChange);
   const onMoveRef = useRef(onMove);
+  const lastMoveSentRef = useRef<number>(0);
+  const lastPosSentRef = useRef<Vec2>({ x: -1, y: -1 });
 
   useEffect(() => {
     if (walkToTarget) {
-      const path = findPath(pos.current, walkToTarget, zones, lockedZoneIdsRef.current);
+      const path = findPath(pos.current, walkToTarget, zones, lockedZoneIdsRef.current, isCampus);
       pathWaypoints.current = path;
     }
-  }, [walkToTarget, zones]);
+  }, [walkToTarget, zones, isCampus]);
   useEffect(() => {
     lockedZoneIdsRef.current = lockedZoneIds;
     onZoneEnterRef.current = onZoneEnter;
@@ -230,11 +232,19 @@ export function OfficeCanvas({
           { x: targetX, y: targetY },
           zones,
           lockedZoneIdsRef.current,
+          isCampus,
         );
         if (resolved.x !== pos.current.x || resolved.y !== pos.current.y) {
           pos.current = resolved;
           const currentCoord = { x: Math.round(pos.current.x), y: Math.round(pos.current.y) };
-          onMoveRef.current(currentCoord);
+
+          // Throttle network presence updates to ~80ms (12-15Hz) to prevent websocket saturation and stutter
+          const nowMs = performance.now();
+          if (nowMs - lastMoveSentRef.current >= 80) {
+            lastMoveSentRef.current = nowMs;
+            lastPosSentRef.current = currentCoord;
+            onMoveRef.current(currentCoord);
+          }
 
           const activeZone = getZoneAt(zones, currentCoord);
           if (activeZone?.id !== currentZoneRef.current?.id) {
@@ -244,6 +254,17 @@ export function OfficeCanvas({
             if (activeZone) onZoneEnterRef.current?.(activeZone.id);
             onZoneChangeRef.current?.(activeZone);
           }
+        }
+      } else {
+        // When avatar has stopped moving, ensure the final resting position was sent
+        const currentCoord = { x: Math.round(pos.current.x), y: Math.round(pos.current.y) };
+        if (
+          lastPosSentRef.current.x !== currentCoord.x ||
+          lastPosSentRef.current.y !== currentCoord.y
+        ) {
+          lastPosSentRef.current = currentCoord;
+          lastMoveSentRef.current = performance.now();
+          onMoveRef.current(currentCoord);
         }
       }
 
@@ -397,13 +418,13 @@ export function OfficeCanvas({
 
     setSelectedUser(null);
 
-    // Obstacle-avoiding A* path to the destination without walking through walls
-    const path = findPath(pos.current, { x: clickX, y: clickY }, zones, lockedZoneIdsRef.current);
+    // Obstacle-avoiding A* path to the destination without walking through walls or grass
+    const path = findPath(pos.current, { x: clickX, y: clickY }, zones, lockedZoneIdsRef.current, isCampus);
     pathWaypoints.current = path;
   }
 
   function handleWalkToTeammate(targetUser: PresenceState) {
-    const path = findPath(pos.current, targetUser.position, zones, lockedZoneIdsRef.current);
+    const path = findPath(pos.current, targetUser.position, zones, lockedZoneIdsRef.current, isCampus);
     pathWaypoints.current = path;
     setSelectedUser(null);
   }
@@ -531,7 +552,7 @@ interface CharOpts {
   isSelected?: boolean;
 }
 
-/** Draws a small human character ("toy") with a walking bob and name tag. */
+/** Draws a sleek, premier modern executive token avatar with status jewels, audio ripples, and directional indicators. */
 function drawCharacter(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -539,103 +560,142 @@ function drawCharacter(
   s: number,
   o: CharOpts,
 ): void {
-  const bob = o.moving ? Math.sin(o.phase) * 2 * s : 0;
-  const swing = o.moving ? Math.sin(o.phase) * 3 * s : 0;
+  const bob = o.moving ? Math.sin(o.phase) * 2.5 * s : 0;
   const cy = y + bob;
 
-  // ground shadow
+  // 1. Multilayer Ground Shadow
   ctx.beginPath();
-  ctx.ellipse(x, y + 22 * s, 15 * s, 5 * s, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(20,22,40,0.12)';
+  ctx.ellipse(x, y + 18 * s, 16 * s, 6 * s, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.18)';
   ctx.fill();
 
-  // selection ring
+  // 2. Speaking Audio Halo Waves
+  if (o.talking) {
+    const pulsePhase = (o.t / 140) % 1;
+    const r1 = (20 + pulsePhase * 14) * s;
+    const a1 = (1 - pulsePhase) * 0.5;
+    ctx.beginPath();
+    ctx.arc(x, cy, r1, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(99, 102, 241, ${a1})`;
+    ctx.lineWidth = 2 * s;
+    ctx.stroke();
+
+    const pulsePhase2 = (o.t / 140 + 0.5) % 1;
+    const r2 = (20 + pulsePhase2 * 14) * s;
+    const a2 = (1 - pulsePhase2) * 0.4;
+    ctx.beginPath();
+    ctx.arc(x, cy, r2, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(56, 189, 248, ${a2})`;
+    ctx.lineWidth = 1.5 * s;
+    ctx.stroke();
+  }
+
+  // 3. Selection Glow
   if (o.isSelected) {
     ctx.beginPath();
-    ctx.arc(x, cy - 4 * s, 32 * s, 0, Math.PI * 2);
-    ctx.strokeStyle = '#6366f1';
+    ctx.arc(x, cy, 26 * s, 0, Math.PI * 2);
+    ctx.strokeStyle = '#38bdf8';
     ctx.lineWidth = 2.5 * s;
     ctx.stroke();
   }
 
-  // talking glow
-  if (o.talking) {
-    const a = 0.28 + 0.16 * Math.sin(o.t / 180);
+  // 4. Directional Heading Indicator (when walking)
+  if (o.moving) {
+    const arrowX = x + o.facing * 20 * s;
     ctx.beginPath();
-    ctx.arc(x, cy - 4 * s, 27 * s, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(95,92,240,${a})`;
-    ctx.lineWidth = 3 * s;
+    ctx.moveTo(arrowX + o.facing * 3 * s, cy);
+    ctx.lineTo(arrowX - o.facing * 4 * s, cy - 5 * s);
+    ctx.lineTo(arrowX - o.facing * 4 * s, cy + 5 * s);
+    ctx.closePath();
+    ctx.fillStyle = o.isSelf ? '#38bdf8' : '#e2e8f0';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1 * s;
     ctx.stroke();
   }
 
-  // legs
-  ctx.fillStyle = '#3d4356';
-  roundRect(ctx, x - 8 * s, cy + 10 * s, 6 * s, 12 * s, 3 * s);
-  ctx.fill();
-  roundRect(ctx, x + 2 * s, cy + 10 * s, 6 * s, 12 * s, 3 * s);
-  ctx.fill();
-
-  // arms (swing opposite phases)
-  ctx.fillStyle = o.color;
-  roundRect(ctx, x - 15 * s, cy - 6 * s + swing, 6 * s, 16 * s, 3 * s);
-  ctx.fill();
-  roundRect(ctx, x + 9 * s, cy - 6 * s - swing, 6 * s, 16 * s, 3 * s);
-  ctx.fill();
-
-  // torso
-  roundRect(ctx, x - 13 * s, cy - 8 * s, 26 * s, 22 * s, 8 * s);
-  ctx.fillStyle = o.color;
-  ctx.fill();
-
-  // head
-  const hy = cy - 20 * s;
+  // 5. Premier Executive Token Disc (Radius 18s)
+  // Outer Bezel Gradient
+  const bezelGrad = ctx.createLinearGradient(x - 18 * s, cy - 18 * s, x + 18 * s, cy + 18 * s);
+  if (o.isSelf) {
+    bezelGrad.addColorStop(0, '#38bdf8');
+    bezelGrad.addColorStop(0.5, '#6366f1');
+    bezelGrad.addColorStop(1, '#4f46e5');
+  } else {
+    bezelGrad.addColorStop(0, '#94a3b8');
+    bezelGrad.addColorStop(0.5, '#475569');
+    bezelGrad.addColorStop(1, '#1e293b');
+  }
   ctx.beginPath();
-  ctx.arc(x, hy, 11 * s, 0, Math.PI * 2);
-  ctx.fillStyle = o.skin;
+  ctx.arc(x, cy, 18 * s, 0, Math.PI * 2);
+  ctx.fillStyle = bezelGrad;
   ctx.fill();
 
-  // hair (top cap)
+  // Inner Core Disc
+  const innerGrad = ctx.createRadialGradient(x, cy - 4 * s, 2 * s, x, cy, 16 * s);
+  if (o.isSelf) {
+    innerGrad.addColorStop(0, '#312e81');
+    innerGrad.addColorStop(1, '#0f172a');
+  } else {
+    innerGrad.addColorStop(0, '#1e293b');
+    innerGrad.addColorStop(1, '#020617');
+  }
   ctx.beginPath();
-  ctx.arc(x, hy, 11.5 * s, Math.PI, 2 * Math.PI);
-  ctx.fillStyle = o.hair;
+  ctx.arc(x, cy, 15.5 * s, 0, Math.PI * 2);
+  ctx.fillStyle = innerGrad;
   ctx.fill();
 
-  // eyes (shift slightly with facing)
-  const ex = o.facing * 2 * s;
-  ctx.fillStyle = '#2b2b33';
+  // Specular rim reflection
   ctx.beginPath();
-  ctx.arc(x - 3.5 * s + ex, hy + 2 * s, 1.4 * s, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x + 3.5 * s + ex, hy + 2 * s, 1.4 * s, 0, Math.PI * 2);
-  ctx.fill();
-
-  // status dot on the shoulder
-  ctx.beginPath();
-  ctx.arc(x + 8 * s, hy - 8 * s, 3.4 * s, 0, Math.PI * 2);
-  ctx.fillStyle = o.statusColor;
-  ctx.fill();
-  ctx.lineWidth = 1.5 * s;
-  ctx.strokeStyle = '#ffffff';
+  ctx.arc(x, cy - 1 * s, 14.5 * s, Math.PI * 1.15, Math.PI * 1.85);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 1.4 * s;
   ctx.stroke();
 
-  // name pill
+  // 6. Monogram Initials
+  const cleanName = o.name.replace(' (you)', '').trim();
+  const parts = cleanName.split(/\s+/).filter(Boolean);
+  const initials = parts.length > 1
+    ? (parts[0]![0]! + parts[1]![0]!).toUpperCase()
+    : (cleanName.slice(0, 2) || 'U').toUpperCase();
+
+  ctx.font = `bold ${12 * s}px Inter, -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(initials, x, cy);
+
+  // 7. Status Jewel Badge (concentric emerald / ruby / amber / violet jewel)
+  const dotX = x + 12 * s;
+  const dotY = cy + 12 * s;
+  // White bezel
+  ctx.beginPath();
+  ctx.arc(dotX, dotY, 4.5 * s, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  // Glowing status center
+  ctx.beginPath();
+  ctx.arc(dotX, dotY, 3.2 * s, 0, Math.PI * 2);
+  ctx.fillStyle = o.statusColor;
+  ctx.fill();
+
+  // 8. Floating Executive Name Badge
   ctx.font = `600 ${11 * s}px Inter, sans-serif`;
   const tw = ctx.measureText(o.name).width;
-  const padX = 7 * s;
-  const pillH = 17 * s;
+  const padX = 8 * s;
+  const pillH = 18 * s;
   const pillW = tw + padX * 2;
   const px = x - pillW / 2;
-  const py = hy - 16 * s - pillH;
-  roundRect(ctx, px, py, pillW, pillH, 8 * s);
-  ctx.fillStyle = o.isSelf ? '#4b41db' : 'rgba(255,255,255,0.96)';
+  const py = cy - 24 * s - pillH;
+
+  roundRect(ctx, px, py, pillW, pillH, 9 * s);
+  ctx.fillStyle = o.isSelf ? '#4338ca' : 'rgba(15, 23, 42, 0.92)';
   ctx.fill();
-  if (!o.isSelf) {
-    ctx.strokeStyle = 'rgba(61,67,86,0.18)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  }
-  ctx.fillStyle = o.isSelf ? '#ffffff' : '#1b1e2b';
+  ctx.strokeStyle = o.isSelf ? '#6366f1' : 'rgba(255, 255, 255, 0.18)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(o.name, x, py + pillH / 2);

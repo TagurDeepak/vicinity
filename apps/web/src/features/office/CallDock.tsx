@@ -21,6 +21,9 @@ export function CallDock() {
     null,
   );
 
+  const micOn = useMediaStore((s) => s.micOn);
+  const [collapsed, setCollapsed] = useState(false);
+
   const localRef = useRef<HTMLVideoElement>(null);
   const stageRef = useRef<HTMLVideoElement>(null);
   const remoteVideoEls = useRef<Map<string, HTMLVideoElement>>(new Map());
@@ -28,6 +31,7 @@ export function CallDock() {
 
   const remoteEntries = Object.entries(remote);
   const localHasVideo = (localStream?.getVideoTracks().length ?? 0) > 0 || camOn || sharing;
+  const totalParticipants = 1 + remoteEntries.length;
 
   // Attach the local preview stream.
   useEffect(() => {
@@ -157,76 +161,116 @@ export function CallDock() {
         </div>
       )}
 
-      {/* Floating Bottom Dock */}
-      <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 gap-3 z-20">
-        {/* Local self-view */}
-        <Tile
-          label="You"
-          muted
-          hasVideo={localHasVideo}
-          onExpand={
-            localHasVideo && localStream
-              ? () => setStaged({ id: 'self', name: 'Your screen/camera', stream: localStream })
-              : undefined
-          }
-        >
-          <video
-            ref={localRef}
-            autoPlay
-            playsInline
-            muted
-            className={localHasVideo ? 'h-full w-full object-cover' : 'hidden'}
-          />
-          {!localHasVideo && <Avatar name="You" size={48} />}
-        </Tile>
-
-        {/* Remote peers */}
-        {remoteEntries.map(([userId, stream]) => {
-          const name = users[userId]?.displayName ?? 'Guest';
-          const hasVideo = stream.getVideoTracks().length > 0;
-          return (
-            <Tile
-              key={userId}
-              label={name}
-              hasVideo={hasVideo}
-              onExpand={hasVideo ? () => setStaged({ id: userId, name, stream }) : undefined}
+      {/* Collapsed Pill State */}
+      {collapsed ? (
+        <div className="pointer-events-auto absolute bottom-3 right-3 z-20 flex items-center gap-2 rounded-full border border-surface-3 bg-surface-0/95 px-3.5 py-1.5 shadow-xl backdrop-blur animate-in fade-in slide-in-from-bottom-2">
+          <span className="inline-block h-2 w-2 rounded-full bg-success-500 animate-pulse" />
+          <span className="text-xs font-semibold text-ink-800">
+            📹 Active Videos ({totalParticipants})
+          </span>
+          <button
+            onClick={() => setCollapsed(false)}
+            className="rounded-lg bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 transition"
+            title="Expand video gallery"
+          >
+            ▲ Show
+          </button>
+        </div>
+      ) : (
+        /* Dedicated Collapsible Video Gallery Bar */
+        <div className="pointer-events-auto absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex w-[calc(100%-2rem)] max-w-4xl flex-col items-center animate-in fade-in slide-in-from-bottom-2">
+          {/* Header Strip with Minimize Action */}
+          <div className="flex w-full items-center justify-between rounded-t-xl border border-b-0 border-surface-3 bg-surface-0/95 px-3 py-1 shadow-sm backdrop-blur">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="inline-block h-2 w-2 rounded-full bg-success-500" />
+              <span className="font-semibold text-ink-800">
+                📹 Video Gallery ({totalParticipants})
+              </span>
+              <span className="hidden text-[11px] text-ink-400 sm:inline">
+                · Scroll sideways if more participants
+              </span>
+            </div>
+            <button
+              onClick={() => setCollapsed(true)}
+              className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium text-ink-500 hover:bg-surface-2 hover:text-ink-800 transition"
+              title="Minimize video bar to floating pill"
             >
-              {/* Dedicated audio element: not affected by video display: none */}
-              <audio
-                ref={(el) => {
-                  if (el) {
-                    remoteAudioEls.current.set(userId, el);
-                    if (el.srcObject !== stream) el.srcObject = stream;
-                    el.play().catch(() => {});
-                  } else {
-                    remoteAudioEls.current.delete(userId);
-                  }
-                }}
-                autoPlay
-                playsInline
-              />
+              <span>▼ Minimize</span>
+            </button>
+          </div>
 
-              {/* Video element: muted to prevent duplicate audio */}
+          {/* Dedicated Horizontal Scroll View */}
+          <div className="flex w-full gap-3 overflow-x-auto rounded-b-xl border border-surface-3 bg-surface-0/90 p-2.5 shadow-2xl backdrop-blur">
+            {/* Local self-view */}
+            <Tile
+              label="You"
+              muted={!micOn}
+              hasVideo={localHasVideo}
+              onExpand={
+                localHasVideo && localStream
+                  ? () => setStaged({ id: 'self', name: 'Your screen/camera', stream: localStream })
+                  : undefined
+              }
+            >
               <video
-                ref={(el) => {
-                  if (el) {
-                    remoteVideoEls.current.set(userId, el);
-                    if (el.srcObject !== stream) el.srcObject = stream;
-                    el.play().catch(() => {});
-                  } else {
-                    remoteVideoEls.current.delete(userId);
-                  }
-                }}
+                ref={localRef}
                 autoPlay
                 playsInline
                 muted
-                className={hasVideo ? 'h-full w-full object-cover' : 'hidden'}
+                className={localHasVideo ? 'h-full w-full object-cover' : 'hidden'}
               />
-              {!hasVideo && <Avatar name={name} size={48} />}
+              {!localHasVideo && <Avatar name="You" size={44} />}
             </Tile>
-          );
-        })}
-      </div>
+
+            {/* Remote peers */}
+            {remoteEntries.map(([userId, stream]) => {
+              const name = users[userId]?.displayName ?? 'Guest';
+              const hasVideo = stream.getVideoTracks().length > 0;
+              return (
+                <Tile
+                  key={userId}
+                  label={name}
+                  hasVideo={hasVideo}
+                  onExpand={hasVideo ? () => setStaged({ id: userId, name, stream }) : undefined}
+                >
+                  {/* Dedicated audio element: not affected by video display: none */}
+                  <audio
+                    ref={(el) => {
+                      if (el) {
+                        remoteAudioEls.current.set(userId, el);
+                        if (el.srcObject !== stream) el.srcObject = stream;
+                        el.play().catch(() => {});
+                      } else {
+                        remoteAudioEls.current.delete(userId);
+                      }
+                    }}
+                    autoPlay
+                    playsInline
+                  />
+
+                  {/* Video element: muted to prevent duplicate audio */}
+                  <video
+                    ref={(el) => {
+                      if (el) {
+                        remoteVideoEls.current.set(userId, el);
+                        if (el.srcObject !== stream) el.srcObject = stream;
+                        el.play().catch(() => {});
+                      } else {
+                        remoteVideoEls.current.delete(userId);
+                      }
+                    }}
+                    autoPlay
+                    playsInline
+                    muted
+                    className={hasVideo ? 'h-full w-full object-cover' : 'hidden'}
+                  />
+                  {!hasVideo && <Avatar name={name} size={44} />}
+                </Tile>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -245,7 +289,7 @@ function Tile({
   children: React.ReactNode;
 }) {
   return (
-    <div className="group pointer-events-auto relative grid h-28 w-40 place-items-center overflow-hidden rounded-2xl border border-surface-3 bg-ink-900/90 shadow-lg">
+    <div className="group pointer-events-auto relative grid h-28 w-40 shrink-0 place-items-center overflow-hidden rounded-xl border border-surface-3 bg-ink-900/90 shadow-lg">
       {children}
       <span className="absolute bottom-1.5 left-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
         {label}

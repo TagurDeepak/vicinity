@@ -25,6 +25,7 @@ interface MeshCallbacks {
 export class MeshManager {
   private peers = new Map<string, PeerEntry>();
   private localStream: MediaStream | null = null;
+  private currentVideoTrack: MediaStreamTrack | null = null;
 
   constructor(
     private readonly socket: VicinitySocket,
@@ -35,31 +36,42 @@ export class MeshManager {
 
   setLocalStream(stream: MediaStream | null): void {
     this.localStream = stream;
+    // Preserve any active video track in localStream so new peer connections receive it
+    if (this.localStream && this.currentVideoTrack && this.currentVideoTrack.readyState === 'live') {
+      const hasVideo = this.localStream.getVideoTracks().includes(this.currentVideoTrack);
+      if (!hasVideo) {
+        this.localStream.addTrack(this.currentVideoTrack);
+      }
+    }
     // Attach current tracks to every existing peer.
     for (const { pc } of this.peers.values()) {
       const senders = pc.getSenders();
-      stream?.getTracks().forEach((track) => {
-        const existing = senders.find((s) => s.track?.kind === track.kind);
-        if (existing) void existing.replaceTrack(track);
-        else pc.addTrack(track, stream);
+      this.localStream?.getTracks().forEach((track) => {
+        if (track.readyState === 'live') {
+          const existing = senders.find((s) => s.track?.kind === track.kind);
+          if (existing) void existing.replaceTrack(track);
+          else pc.addTrack(track, this.localStream!);
+        }
       });
     }
   }
 
   /** Replaces (or removes) the outgoing video track across all peers. */
   async setVideoTrack(track: MediaStreamTrack | null): Promise<void> {
+    this.currentVideoTrack = track;
+    if (this.localStream) {
+      this.localStream.getVideoTracks().forEach((t) => this.localStream!.removeTrack(t));
+      if (track) this.localStream.addTrack(track);
+    } else if (track) {
+      this.localStream = new MediaStream([track]);
+    }
+
     for (const { pc } of this.peers.values()) {
       const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
       if (sender) {
         await sender.replaceTrack(track);
-      } else if (track) {
-        if (this.localStream) {
-          pc.addTrack(track, this.localStream);
-        } else {
-          const s = new MediaStream([track]);
-          this.localStream = s;
-          pc.addTrack(track, s);
-        }
+      } else if (track && this.localStream) {
+        pc.addTrack(track, this.localStream);
       }
     }
   }
@@ -166,7 +178,17 @@ export class MeshManager {
     this.peers.set(peerId, entry);
 
     // Add local tracks so onnegotiationneeded fires and starts the handshake.
-    this.localStream?.getTracks().forEach((track) => pc.addTrack(track, this.localStream!));
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((track) => {
+        if (track.readyState === 'live') {
+          pc.addTrack(track, this.localStream!);
+        }
+      });
+    } else if (this.currentVideoTrack && this.currentVideoTrack.readyState === 'live') {
+      const s = new MediaStream([this.currentVideoTrack]);
+      this.localStream = s;
+      pc.addTrack(this.currentVideoTrack, s);
+    }
 
     pc.onnegotiationneeded = async () => {
       try {

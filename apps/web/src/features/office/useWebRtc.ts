@@ -101,6 +101,14 @@ export function useWebRtc() {
     if (group && group.members.length > 1) {
       useMediaStore.getState().setConnecting(true);
       void ensureLocalStream().then(() => {
+        // If camera is currently active, ensure the video track is verified and attached
+        const camActive = useMediaStore.getState().camOn;
+        if (camActive && localRef.current) {
+          const videoTrack = localRef.current.getVideoTracks().find((t) => t.readyState === 'live');
+          if (videoTrack) {
+            void manager.setVideoTrack(videoTrack);
+          }
+        }
         manager.syncGroup(group.members);
         useMediaStore.getState().setConnecting(false);
       });
@@ -132,6 +140,7 @@ export function useWebRtc() {
       const updatedStream = remaining.length > 0 ? new MediaStream(remaining) : null;
       localRef.current = updatedStream;
       useMediaStore.getState().setLocalStream(updatedStream);
+      manager?.setLocalStream(updatedStream);
       useMediaStore.getState().setCam(false);
     } else {
       try {
@@ -144,6 +153,7 @@ export function useWebRtc() {
         const updatedStream = new MediaStream(local.getTracks());
         localRef.current = updatedStream;
         useMediaStore.getState().setLocalStream(updatedStream);
+        manager?.setLocalStream(updatedStream);
         await manager?.setVideoTrack(track);
         useMediaStore.getState().setCam(true);
       } catch {
