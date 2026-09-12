@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "lib": ["ES2022"],
+    "types": ["node", "jest"],
+    "resolveJsonModule": true,
+    // Express types req.params/query via an index signature; relaxing this flag
+    // here avoids `string | undefined` noise on every route param. Domain code
+    // (e.g. the proximity engine) still guards array access explicitly.
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["src/**/*.ts", "../../packages/shared/src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+}

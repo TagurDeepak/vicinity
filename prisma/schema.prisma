@@ -1,0 +1,174 @@
+// Vicinity — Prisma schema.
+// Persistent (durable) state only. Ephemeral presence/position lives in Redis.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MemberRole {
+  owner
+  admin
+  member
+  guest
+}
+
+enum ZoneType {
+  open
+  focus
+  meeting
+  lounge
+  private
+}
+
+enum ChannelScope {
+  workspace
+  zone
+  dm
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String?  // null when the user is OAuth/Entra-only
+  displayName  String
+  avatarUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedWorkspaces Workspace[]      @relation("WorkspaceOwner")
+  memberships     Membership[]
+  messages        Message[]
+  channelMembers  ChannelMember[]
+  resources       Resource[]
+
+  @@map("users")
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  ownerId   String
+  layout    Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner       User         @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  memberships Membership[]
+  zones       Zone[]
+  invites     Invite[]
+  channels    Channel[]
+
+  @@map("workspaces")
+}
+
+model Membership {
+  workspaceId String
+  userId      String
+  role        MemberRole @default(member)
+  joinedAt    DateTime   @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+  @@map("memberships")
+}
+
+model Zone {
+  id            String   @id @default(uuid())
+  workspaceId   String
+  name          String
+  type          ZoneType @default(open)
+  geometry      Json // { x, y, w, h }
+  isPrivate     Boolean  @default(false)
+  audioIsolated Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channels  Channel[]
+  resources Resource[]
+
+  @@index([workspaceId])
+  @@map("zones")
+}
+
+model Invite {
+  id          String    @id @default(uuid())
+  workspaceId String
+  email       String
+  role        MemberRole @default(member)
+  token       String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("invites")
+}
+
+model Channel {
+  id          String       @id @default(uuid())
+  workspaceId String
+  scope       ChannelScope
+  zoneId      String?
+  createdAt   DateTime     @default(now())
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  zone      Zone?           @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  members   ChannelMember[]
+  messages  Message[]
+
+  @@index([workspaceId])
+  @@index([zoneId])
+  @@map("channels")
+}
+
+model ChannelMember {
+  channelId String
+  userId    String
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([channelId, userId])
+  @@map("channel_members")
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  channelId String
+  senderId  String
+  body      String
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  sender  User    @relation(fields: [senderId], references: [id])
+
+  @@index([channelId, createdAt])
+  @@map("messages")
+}
+
+model Resource {
+  id        String   @id @default(uuid())
+  zoneId    String
+  kind      String // 'link' | 'file' | 'whiteboard'
+  title     String?
+  url       String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  zone    Zone  @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  creator User? @relation(fields: [createdBy], references: [id])
+
+  @@index([zoneId])
+  @@map("resources")
+}

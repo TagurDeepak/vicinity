@@ -1,0 +1,36 @@
+# Multi-stage build for the Vicinity API (Express + Socket.IO).
+# Build context is the repository root: docker build -f infra/Dockerfile.api .
+
+FROM node:20-alpine AS base
+WORKDIR /app
+ENV NODE_ENV=production
+
+# --- deps: install with dev deps for building ---
+FROM base AS deps
+COPY package.json package-lock.json turbo.json tsconfig.base.json ./
+COPY apps/api/package.json ./apps/api/package.json
+COPY packages/shared/package.json ./packages/shared/package.json
+COPY packages/ui/package.json ./packages/ui/package.json
+COPY packages/config/package.json ./packages/config/package.json
+RUN npm ci
+
+# --- build ---
+FROM deps AS build
+COPY . .
+RUN npm run prisma:generate \
+  && npm run build --workspace @vicinity/api
+
+# --- runtime ---
+FROM base AS runner
+ENV NODE_ENV=production
+# Copy the installed modules (includes generated Prisma client) and build output.
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/apps/api/dist ./apps/api/dist
+COPY --from=build /app/packages ./packages
+COPY --from=build /app/prisma ./prisma
+COPY --from=build /app/apps/api/package.json ./apps/api/package.json
+
+USER node
+EXPOSE 4000
+# Entry compiled with the shared package nested under apps/api/src.
+CMD ["node", "apps/api/dist/apps/api/src/main.js"]

@@ -1,0 +1,41 @@
+# Vicinity — local development stack.
+# Brings up PostgreSQL and Redis for the API. The web and api apps
+# can be run natively (npm run dev) or containerized (see infra/).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vicinity-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vicinity}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vicinity}
+      POSTGRES_DB: ${POSTGRES_DB:-vicinity}
+    ports:
+      - '5432:5432'
+    volumes:
+      - vicinity_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-vicinity}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: vicinity-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - vicinity_redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  vicinity_pg_data:
+  vicinity_redis_data:
