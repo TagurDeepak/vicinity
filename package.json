@@ -11,6 +11,8 @@
   "scripts": {
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
+    "build:api": "npm run prisma:generate && turbo run build --filter=@vicinity/shared --filter=@vicinity/api",
+    "start:api": "npm run prisma:push && node apps/api/dist/apps/api/src/main.js",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
