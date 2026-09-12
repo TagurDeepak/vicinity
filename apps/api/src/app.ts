@@ -19,8 +19,9 @@ export function createApp(): Express {
 
   // --- Security & parsing ---
   app.set('trust proxy', 1); // correct client IP behind a proxy/load balancer
-  app.use(helmet());
-  app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+  const corsOrigin = env.CORS_ORIGINS.includes('*') ? true : env.CORS_ORIGINS;
+  app.use(cors({ origin: corsOrigin, credentials: true }));
   app.use(express.json({ limit: '1mb' }));
   app.use(pinoHttp({ logger }));
 

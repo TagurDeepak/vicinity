@@ -17,8 +17,9 @@ async function bootstrap(): Promise<void> {
   const httpServer = createServer(app);
 
   // Socket.IO with a Redis adapter so realtime scales across multiple nodes.
+  const corsOrigin = env.CORS_ORIGINS.includes('*') ? true : env.CORS_ORIGINS;
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
-    cors: { origin: env.CORS_ORIGINS, credentials: true },
+    cors: { origin: corsOrigin, credentials: true },
   });
   // In multi-node deployments, fan out events via Redis. Skipped for the
   // in-memory dev mock (single node).
