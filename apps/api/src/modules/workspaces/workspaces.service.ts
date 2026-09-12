@@ -115,7 +115,6 @@ export async function createInvite(workspaceId: string, email: string, role: Mem
 export async function acceptInvite(userId: string, token: string) {
   const invite = await prisma.invite.findUnique({ where: { token } });
   if (!invite) throw AppError.notFound('Invite not found');
-  if (invite.acceptedAt) throw AppError.conflict('Invite already used');
   if (invite.expiresAt < new Date()) throw AppError.badRequest('Invite has expired');
 
   return prisma.$transaction(async (tx) => {
@@ -124,7 +123,9 @@ export async function acceptInvite(userId: string, token: string) {
       create: { workspaceId: invite.workspaceId, userId, role: invite.role },
       update: {},
     });
-    await tx.invite.update({ where: { token }, data: { acceptedAt: new Date() } });
+    if (!invite.acceptedAt) {
+      await tx.invite.update({ where: { token }, data: { acceptedAt: new Date() } });
+    }
     return tx.workspace.findUniqueOrThrow({ where: { id: invite.workspaceId } });
   });
 }

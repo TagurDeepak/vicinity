@@ -31,7 +31,7 @@ const envSchema = z.object({
 
   STUN_URLS: z
     .string()
-    .default('stun:stun.l.google.com:19302')
+    .default('stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302')
     .transform((v) => v.split(',').map((s) => s.trim())),
   TURN_URL: z.string().optional(),
   TURN_USERNAME: z.string().optional(),

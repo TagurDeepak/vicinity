@@ -13,6 +13,8 @@ import { usePresenceStore } from '@/stores/presence';
 export function CallDock() {
   const remote = useMediaStore((s) => s.remote);
   const localStream = useMediaStore((s) => s.localStream);
+  const camOn = useMediaStore((s) => s.camOn);
+  const sharing = useMediaStore((s) => s.sharing);
   const users = usePresenceStore((s) => s.users);
 
   const [staged, setStaged] = useState<{ id: string; name: string; stream: MediaStream } | null>(
@@ -21,17 +23,32 @@ export function CallDock() {
 
   const localRef = useRef<HTMLVideoElement>(null);
   const stageRef = useRef<HTMLVideoElement>(null);
-  const remoteEls = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const remoteVideoEls = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const remoteAudioEls = useRef<Map<string, HTMLAudioElement>>(new Map());
+
+  const remoteEntries = Object.entries(remote);
+  const localHasVideo = (localStream?.getVideoTracks().length ?? 0) > 0 || camOn || sharing;
 
   // Attach the local preview stream.
   useEffect(() => {
-    if (localRef.current && localStream) localRef.current.srcObject = localStream;
-  }, [localStream]);
+    if (localRef.current) {
+      if (localStream && (localHasVideo || camOn)) {
+        if (localRef.current.srcObject !== localStream) {
+          localRef.current.srcObject = localStream;
+        }
+        localRef.current.muted = true;
+        localRef.current.play().catch(() => {});
+      } else {
+        localRef.current.srcObject = null;
+      }
+    }
+  }, [localStream, localHasVideo, camOn]);
 
   // Attach staged stream.
   useEffect(() => {
     if (stageRef.current && staged?.stream) {
       stageRef.current.srcObject = staged.stream;
+      stageRef.current.play().catch(() => {});
     }
   }, [staged]);
 
@@ -45,19 +62,44 @@ export function CallDock() {
   // Attach remote streams to their elements.
   useEffect(() => {
     for (const [userId, stream] of Object.entries(remote)) {
-      const el = remoteEls.current.get(userId);
-      if (el && el.srcObject !== stream) el.srcObject = stream;
+      const vEl = remoteVideoEls.current.get(userId);
+      if (vEl && vEl.srcObject !== stream) {
+        vEl.srcObject = stream;
+        vEl.play().catch(() => {});
+      }
+      const aEl = remoteAudioEls.current.get(userId);
+      if (aEl && aEl.srcObject !== stream) {
+        aEl.srcObject = stream;
+        aEl.play().catch(() => {});
+      }
     }
   }, [remote]);
 
-  // Distance-based volume loop.
+  // Browser Autoplay Policy listener: user interaction resumes any paused audio.
+  useEffect(() => {
+    const resumeAudio = () => {
+      for (const aEl of remoteAudioEls.current.values()) {
+        if (aEl.paused) {
+          aEl.play().catch(() => {});
+        }
+      }
+    };
+    window.addEventListener('click', resumeAudio);
+    window.addEventListener('keydown', resumeAudio);
+    return () => {
+      window.removeEventListener('click', resumeAudio);
+      window.removeEventListener('keydown', resumeAudio);
+    };
+  }, []);
+
+  // Distance-based volume loop on remote audio elements.
   useEffect(() => {
     let raf = 0;
     const tick = () => {
       const state = usePresenceStore.getState();
       const me = state.me ? state.users[state.me] : null;
       if (me) {
-        for (const [userId, el] of remoteEls.current.entries()) {
+        for (const [userId, el] of remoteAudioEls.current.entries()) {
           const peer = state.users[userId];
           if (!peer) continue;
           const dist = Math.hypot(
@@ -74,10 +116,10 @@ export function CallDock() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  const remoteEntries = Object.entries(remote);
-  const localHasVideo = (localStream?.getVideoTracks().length ?? 0) > 0;
+  const hasRemotes = remoteEntries.length > 0;
+  const showDock = hasRemotes || localHasVideo || camOn || staged !== null;
 
-  if (remoteEntries.length === 0) return null;
+  if (!showDock) return null;
 
   return (
     <>
@@ -143,13 +185,35 @@ export function CallDock() {
               hasVideo={hasVideo}
               onExpand={hasVideo ? () => setStaged({ id: userId, name, stream }) : undefined}
             >
-              <video
+              {/* Dedicated audio element: not affected by video display: none */}
+              <audio
                 ref={(el) => {
-                  if (el) remoteEls.current.set(userId, el);
-                  else remoteEls.current.delete(userId);
+                  if (el) {
+                    remoteAudioEls.current.set(userId, el);
+                    if (el.srcObject !== stream) el.srcObject = stream;
+                    el.play().catch(() => {});
+                  } else {
+                    remoteAudioEls.current.delete(userId);
+                  }
                 }}
                 autoPlay
                 playsInline
+              />
+
+              {/* Video element: muted to prevent duplicate audio */}
+              <video
+                ref={(el) => {
+                  if (el) {
+                    remoteVideoEls.current.set(userId, el);
+                    if (el.srcObject !== stream) el.srcObject = stream;
+                    el.play().catch(() => {});
+                  } else {
+                    remoteVideoEls.current.delete(userId);
+                  }
+                }}
+                autoPlay
+                playsInline
+                muted
                 className={hasVideo ? 'h-full w-full object-cover' : 'hidden'}
               />
               {!hasVideo && <Avatar name={name} size={48} />}

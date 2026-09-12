@@ -6,6 +6,7 @@ interface PeerEntry {
   polite: boolean;
   makingOffer: boolean;
   ignoreOffer: boolean;
+  pendingCandidates: RTCIceCandidateInit[];
 }
 
 interface MeshCallbacks {
@@ -49,8 +50,17 @@ export class MeshManager {
   async setVideoTrack(track: MediaStreamTrack | null): Promise<void> {
     for (const { pc } of this.peers.values()) {
       const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
-      if (sender) await sender.replaceTrack(track);
-      else if (track && this.localStream) pc.addTrack(track, this.localStream);
+      if (sender) {
+        await sender.replaceTrack(track);
+      } else if (track) {
+        if (this.localStream) {
+          pc.addTrack(track, this.localStream);
+        } else {
+          const s = new MediaStream([track]);
+          this.localStream = s;
+          pc.addTrack(track, s);
+        }
+      }
     }
   }
 
@@ -75,20 +85,35 @@ export class MeshManager {
     entry.ignoreOffer = !entry.polite && collision;
     if (entry.ignoreOffer) return;
 
-    await pc.setRemoteDescription(offer);
-    await pc.setLocalDescription();
-    this.socket.emit('rtc:answer', {
-      fromUserId: this.selfId,
-      toUserId: fromUserId,
-      sdp: pc.localDescription?.sdp ?? '',
-    });
+    try {
+      if (collision) {
+        await pc.setLocalDescription({ type: 'rollback' });
+      }
+      await pc.setRemoteDescription(offer);
+      await this.flushPendingIce(entry);
+      await pc.setLocalDescription();
+      this.socket.emit('rtc:answer', {
+        fromUserId: this.selfId,
+        toUserId: fromUserId,
+        sdp: pc.localDescription?.sdp ?? '',
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[WebRTC] handleOffer failed', err);
+    }
   }
 
   async handleAnswer(fromUserId: string, sdp: string): Promise<void> {
     const entry = this.peers.get(fromUserId);
     if (!entry) return;
-    if (entry.pc.signalingState === 'have-local-offer') {
-      await entry.pc.setRemoteDescription({ type: 'answer', sdp });
+    try {
+      if (entry.pc.signalingState === 'have-local-offer') {
+        await entry.pc.setRemoteDescription({ type: 'answer', sdp });
+        await this.flushPendingIce(entry);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[WebRTC] handleAnswer failed', err);
     }
   }
 
@@ -96,9 +121,29 @@ export class MeshManager {
     const entry = this.peers.get(fromUserId);
     if (!entry) return;
     try {
-      await entry.pc.addIceCandidate(candidate);
+      if (!entry.pc.remoteDescription) {
+        entry.pendingCandidates.push(candidate);
+      } else {
+        await entry.pc.addIceCandidate(candidate);
+      }
     } catch (err) {
-      if (!entry.ignoreOffer) throw err;
+      if (!entry.ignoreOffer) {
+        // eslint-disable-next-line no-console
+        console.warn('[WebRTC] handleIce failed', err);
+      }
+    }
+  }
+
+  private async flushPendingIce(entry: PeerEntry): Promise<void> {
+    while (entry.pendingCandidates.length > 0) {
+      const cand = entry.pendingCandidates.shift();
+      if (cand) {
+        try {
+          await entry.pc.addIceCandidate(cand);
+        } catch {
+          // ignore invalid/expired candidate
+        }
+      }
     }
   }
 
@@ -111,7 +156,13 @@ export class MeshManager {
   private createPeer(peerId: string): PeerEntry {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
     // Larger id is "polite" and yields on glare; deterministic across both ends.
-    const entry: PeerEntry = { pc, polite: this.selfId > peerId, makingOffer: false, ignoreOffer: false };
+    const entry: PeerEntry = {
+      pc,
+      polite: this.selfId > peerId,
+      makingOffer: false,
+      ignoreOffer: false,
+      pendingCandidates: [],
+    };
     this.peers.set(peerId, entry);
 
     // Add local tracks so onnegotiationneeded fires and starts the handshake.
@@ -143,9 +194,9 @@ export class MeshManager {
       }
     };
 
-    pc.ontrack = ({ streams }) => {
-      const stream = streams[0];
-      if (stream) this.cb.onRemoteStream(peerId, stream);
+    pc.ontrack = (event) => {
+      const stream = event.streams[0] ?? new MediaStream([event.track]);
+      this.cb.onRemoteStream(peerId, stream);
     };
 
     pc.onconnectionstatechange = () => {

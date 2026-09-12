@@ -31,21 +31,39 @@ export function useWebRtc() {
     let cancelled = false;
     const socket = getSocket(token);
 
+    const fallbackIceServers: RTCIceServer[] = [
+      {
+        urls: [
+          'stun:stun.l.google.com:19302',
+          'stun:stun1.l.google.com:19302',
+          'stun:stun2.l.google.com:19302',
+        ],
+      },
+    ];
+
+    const initManager = (iceServers: RTCIceServer[]) => {
+      if (cancelled) return;
+      const manager = new MeshManager(socket, selfId, iceServers, {
+        onRemoteStream: (userId, stream) => useMediaStore.getState().addRemote(userId, stream),
+        onRemoteLeft: (userId) => useMediaStore.getState().removeRemote(userId),
+      });
+      managerRef.current = manager;
+
+      socket.on('rtc:offer', (p) => void manager.handleOffer(p.fromUserId, p.sdp));
+      socket.on('rtc:answer', (p) => void manager.handleAnswer(p.fromUserId, p.sdp));
+      socket.on('rtc:ice-candidate', (p) => void manager.handleIce(p.fromUserId, p.candidate));
+
+      if (localRef.current) {
+        manager.setLocalStream(localRef.current);
+      }
+    };
+
     getIceServers()
       .then(({ iceServers }) => {
-        if (cancelled) return;
-        const manager = new MeshManager(socket, selfId, iceServers, {
-          onRemoteStream: (userId, stream) => useMediaStore.getState().addRemote(userId, stream),
-          onRemoteLeft: (userId) => useMediaStore.getState().removeRemote(userId),
-        });
-        managerRef.current = manager;
-
-        socket.on('rtc:offer', (p) => void manager.handleOffer(p.fromUserId, p.sdp));
-        socket.on('rtc:answer', (p) => void manager.handleAnswer(p.fromUserId, p.sdp));
-        socket.on('rtc:ice-candidate', (p) => void manager.handleIce(p.fromUserId, p.candidate));
+        initManager(iceServers && iceServers.length > 0 ? iceServers : fallbackIceServers);
       })
       .catch(() => {
-        /* ICE fetch failed; media stays disabled but presence/chat keep working */
+        initManager(fallbackIceServers);
       });
 
     return () => {
@@ -110,15 +128,22 @@ export function useWebRtc() {
         localRef.current?.removeTrack(t);
       });
       await manager?.setVideoTrack(null);
+      const remaining = localRef.current?.getTracks() ?? [];
+      const updatedStream = remaining.length > 0 ? new MediaStream(remaining) : null;
+      localRef.current = updatedStream;
+      useMediaStore.getState().setLocalStream(updatedStream);
       useMediaStore.getState().setCam(false);
     } else {
       try {
         const cam = await navigator.mediaDevices.getUserMedia({ video: true });
         const track = cam.getVideoTracks()[0];
         if (!track) return;
-        const local = (await ensureLocalStream()) ?? cam;
+        const local = (await ensureLocalStream()) ?? new MediaStream();
+        local.getVideoTracks().forEach((t) => local.removeTrack(t));
         local.addTrack(track);
-        useMediaStore.getState().setLocalStream(local);
+        const updatedStream = new MediaStream(local.getTracks());
+        localRef.current = updatedStream;
+        useMediaStore.getState().setLocalStream(updatedStream);
         await manager?.setVideoTrack(track);
         useMediaStore.getState().setCam(true);
       } catch {
