@@ -13,7 +13,7 @@ loadDotenv(); // also allow an app-local .env to override
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 
-  API_PORT: z.coerce.number().default(4000),
+  API_PORT: z.coerce.number().default(process.env.PORT ? Number(process.env.PORT) : 4000),
   API_HOST: z.string().default('0.0.0.0'),
   CORS_ORIGINS: z
     .string()
