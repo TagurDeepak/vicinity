@@ -279,22 +279,19 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
           </aside>
         )}
 
-        {/* Central Stage: Dedicated Video Ribbon on top + Office Canvas below */}
-        <div className="flex flex-1 flex-col gap-2.5 overflow-hidden">
+        <main className="relative flex-1 overflow-hidden rounded-2xl shadow-sm shadow-black/5">
+          <OfficeCanvas
+            zones={zones.data ?? []}
+            layoutTheme={workspace.data?.layout?.theme}
+            lockedZoneIds={lockedZoneIds}
+            walkToTarget={walkToTarget}
+            onMove={move}
+            onZoneEnter={enterZone}
+            onZoneLeave={leaveZone}
+            onZoneChange={setCurrentZone}
+            onStartDm={handleStartDm}
+          />
           <CallDock />
-
-          <main className="relative flex-1 overflow-hidden rounded-2xl shadow-sm shadow-black/5">
-            <OfficeCanvas
-              zones={zones.data ?? []}
-              layoutTheme={workspace.data?.layout?.theme}
-              lockedZoneIds={lockedZoneIds}
-              walkToTarget={walkToTarget}
-              onMove={move}
-              onZoneEnter={enterZone}
-              onZoneLeave={leaveZone}
-              onZoneChange={setCurrentZone}
-              onStartDm={handleStartDm}
-            />
           {/* Movement hint & Zone badge */}
           <div className="pointer-events-none absolute left-3 top-3 flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-2 rounded-full border border-surface-3 bg-surface-0/90 px-3 py-1.5 text-xs text-ink-500 shadow-sm backdrop-blur">
@@ -346,7 +343,6 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
             </div>
           )}
         </main>
-        </div>
 
         {showChat && (
           <aside className="w-80 shrink-0 rounded-2xl border border-surface-3 bg-surface-0 p-4 shadow-sm shadow-black/5 flex flex-col overflow-hidden animate-in fade-in slide-in-from-right-2">

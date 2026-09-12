@@ -23,23 +23,6 @@ export function CallDock() {
 
   const micOn = useMediaStore((s) => s.micOn);
   const [collapsed, setCollapsed] = useState(false);
-  const [dockMode, setDockMode] = useState<'ribbon' | 'corner'>('ribbon');
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('vicinity.dockMode');
-      if (saved === 'corner' || saved === 'ribbon') {
-        setDockMode(saved);
-      }
-    } catch {}
-  }, []);
-
-  const changeDockMode = (mode: 'ribbon' | 'corner') => {
-    setDockMode(mode);
-    try {
-      localStorage.setItem('vicinity.dockMode', mode);
-    } catch {}
-  };
 
   const localRef = useRef<HTMLVideoElement>(null);
   const stageRef = useRef<HTMLVideoElement>(null);
@@ -148,16 +131,14 @@ export function CallDock() {
 
   if (!showDock) return null;
 
-  const isRibbon = dockMode === 'ribbon';
-
   return (
     <>
       {/* Full-size Stage View for Presentations & Screens */}
       {staged && (
-        <div className="fixed inset-4 z-50 flex flex-col overflow-hidden rounded-2xl border border-surface-3 bg-black/90 p-4 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95">
+        <div className="fixed inset-4 z-50 flex flex-col overflow-hidden rounded-2xl border border-white/20 bg-black/95 p-4 shadow-2xl backdrop-blur-lg animate-in fade-in zoom-in-95">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="inline-block h-2 w-2 rounded-full bg-danger-500 animate-pulse" />
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-danger-500 animate-pulse" />
               <span className="text-sm font-semibold text-white">Presenting: {staged.name}</span>
             </div>
             <button
@@ -180,260 +161,120 @@ export function CallDock() {
         </div>
       )}
 
-      {/* MODE 1: DEDICATED TOP RIBBON (Zero overlap with office canvas) */}
-      {isRibbon && (
-        <>
-          {collapsed ? (
-            <div className="flex shrink-0 items-center justify-between rounded-xl border border-surface-3 bg-surface-0/95 px-3 py-1.5 shadow-sm backdrop-blur">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="inline-block h-2 w-2 rounded-full bg-success-500 animate-pulse" />
-                <span className="font-semibold text-ink-800">
-                  📹 Active Videos ({totalParticipants})
-                </span>
-                <span className="text-[11px] text-ink-400">· Ribbon Minimized</span>
-              </div>
+      {/* Floating Picture-in-Picture in Top-Right Corner */}
+      {collapsed ? (
+        <div className="pointer-events-auto absolute top-3 right-3 z-30 flex items-center gap-2 rounded-full border border-white/15 bg-slate-950/85 px-3 py-1.5 shadow-xl backdrop-blur-md animate-in fade-in">
+          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-xs font-semibold text-slate-200">
+            📹 Video ({totalParticipants})
+          </span>
+          <button
+            onClick={() => setCollapsed(false)}
+            className="rounded-lg bg-white/10 px-2 py-0.5 text-xs font-semibold text-white hover:bg-white/20 transition"
+            title="Expand video preview"
+          >
+            ▲ Show
+          </button>
+        </div>
+      ) : (
+        <div className="pointer-events-auto absolute top-3 right-3 z-30 flex flex-col items-end gap-1.5 animate-in fade-in zoom-in-95">
+          <div className="flex flex-col rounded-2xl border border-white/15 bg-slate-950/85 p-2 shadow-2xl backdrop-blur-md">
+            {/* Header bar */}
+            <div className="mb-1.5 flex items-center justify-between px-1 text-xs">
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => changeDockMode('corner')}
-                  className="rounded-lg px-2 py-0.5 text-xs font-medium text-ink-600 hover:bg-surface-2 hover:text-ink-900 transition"
-                  title="Switch to floating corner Picture-in-Picture"
-                >
-                  🪟 Corner PiP
-                </button>
-                <button
-                  onClick={() => setCollapsed(false)}
-                  className="rounded-lg bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-100 transition"
-                  title="Expand video gallery ribbon"
-                >
-                  ▲ Expand Videos
-                </button>
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="font-semibold text-slate-200">
+                  Active Video ({totalParticipants})
+                </span>
               </div>
-            </div>
-          ) : (
-            <div className="flex shrink-0 flex-col rounded-2xl border border-surface-3 bg-surface-0/95 shadow-sm backdrop-blur overflow-hidden animate-in fade-in slide-in-from-top-2">
-              {/* Header Strip with Controls */}
-              <div className="flex items-center justify-between border-b border-surface-2 bg-surface-1/50 px-3 py-1 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="inline-block h-2 w-2 rounded-full bg-success-500 animate-pulse" />
-                  <span className="font-semibold text-ink-800">
-                    📹 Active Videos ({totalParticipants})
-                  </span>
-                  <span className="hidden text-[11px] text-ink-400 md:inline">
-                    · Dedicated Top Ribbon (0% map overlap) · Scroll horizontally for more
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => changeDockMode('corner')}
-                    className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium text-ink-600 hover:bg-surface-2 hover:text-ink-900 transition"
-                    title="Switch to floating corner Picture-in-Picture"
-                  >
-                    <span>🪟 Corner PiP</span>
-                  </button>
-                  <button
-                    onClick={() => setCollapsed(true)}
-                    className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium text-ink-600 hover:bg-surface-2 hover:text-ink-900 transition"
-                    title="Minimize video gallery ribbon"
-                  >
-                    <span>▼ Minimize</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Horizontal Scrollable Video Tiles */}
-              <div className="flex gap-3 overflow-x-auto p-2">
-                {/* Local self-view */}
-                <Tile
-                  label="You"
-                  muted={!micOn}
-                  hasVideo={localHasVideo}
-                  onExpand={
-                    localHasVideo && localStream
-                      ? () => setStaged({ id: 'self', name: 'Your screen/camera', stream: localStream })
-                      : undefined
-                  }
-                >
-                  <video
-                    ref={localRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className={localHasVideo ? 'h-full w-full object-cover' : 'hidden'}
-                  />
-                  {!localHasVideo && <Avatar name="You" size={44} />}
-                </Tile>
-
-                {/* Remote peers */}
-                {remoteEntries.map(([userId, stream]) => {
-                  const name = users[userId]?.displayName ?? 'Guest';
-                  const hasVideo = stream.getVideoTracks().length > 0;
-                  return (
-                    <Tile
-                      key={userId}
-                      label={name}
-                      muted={false}
-                      hasVideo={hasVideo}
-                      onExpand={hasVideo ? () => setStaged({ id: userId, name, stream }) : undefined}
-                    >
-                      <audio
-                        ref={(el) => {
-                          if (el) {
-                            remoteAudioEls.current.set(userId, el);
-                            if (el.srcObject !== stream) el.srcObject = stream;
-                            el.play().catch(() => {});
-                          } else {
-                            remoteAudioEls.current.delete(userId);
-                          }
-                        }}
-                        autoPlay
-                        playsInline
-                      />
-                      <video
-                        ref={(el) => {
-                          if (el) {
-                            remoteVideoEls.current.set(userId, el);
-                            if (el.srcObject !== stream) el.srcObject = stream;
-                            el.play().catch(() => {});
-                          } else {
-                            remoteVideoEls.current.delete(userId);
-                          }
-                        }}
-                        autoPlay
-                        playsInline
-                        muted
-                        className={hasVideo ? 'h-full w-full object-cover' : 'hidden'}
-                      />
-                      {!hasVideo && <Avatar name={name} size={44} />}
-                    </Tile>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* MODE 2: COMPACT FLOATING CORNER PIP */}
-      {!isRibbon && (
-        <>
-          {collapsed ? (
-            <div className="pointer-events-auto fixed bottom-5 left-5 z-30 flex items-center gap-2 rounded-full border border-surface-3 bg-surface-0/95 px-3.5 py-1.5 shadow-xl backdrop-blur animate-in fade-in">
-              <span className="inline-block h-2 w-2 rounded-full bg-success-500 animate-pulse" />
-              <span className="text-xs font-semibold text-ink-800">
-                📹 Videos ({totalParticipants})
-              </span>
               <button
-                onClick={() => changeDockMode('ribbon')}
-                className="rounded-md p-1 text-xs text-ink-500 hover:bg-surface-2 transition"
-                title="Dock to top ribbon (0% map overlap)"
+                onClick={() => setCollapsed(true)}
+                className="flex h-5 w-5 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition"
+                title="Minimize video window"
+                aria-label="Minimize"
               >
-                📌
-              </button>
-              <button
-                onClick={() => setCollapsed(false)}
-                className="rounded-lg bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 transition"
-                title="Expand video gallery"
-              >
-                ▲ Show
+                ✕
               </button>
             </div>
-          ) : (
-            <div className="pointer-events-auto fixed bottom-5 left-5 z-30 flex flex-col items-start w-fit max-w-[85vw] rounded-2xl border border-surface-3 bg-surface-0/95 shadow-2xl backdrop-blur overflow-hidden animate-in fade-in zoom-in-95">
-              {/* Header Strip with Controls */}
-              <div className="flex w-full items-center justify-between border-b border-surface-2 bg-surface-1/60 px-3 py-1 text-xs gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="inline-block h-2 w-2 rounded-full bg-success-500 animate-pulse" />
-                  <span className="font-semibold text-ink-800">
-                    📹 Videos ({totalParticipants})
-                  </span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => changeDockMode('ribbon')}
-                    className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium text-ink-600 hover:bg-surface-2 transition"
-                    title="Dock to top ribbon (0% map overlap)"
-                  >
-                    <span>📌 Dock Top</span>
-                  </button>
-                  <button
-                    onClick={() => setCollapsed(true)}
-                    className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink-600 hover:bg-surface-2 transition"
-                    title="Minimize"
-                  >
-                    <span>▼</span>
-                  </button>
-                </div>
-              </div>
 
-              {/* Horizontal Scroll View (w-fit hugs tiles, never empty 900px block) */}
-              <div className="flex gap-2.5 overflow-x-auto p-2">
-                <Tile
-                  label="You"
-                  muted={!micOn}
-                  hasVideo={localHasVideo}
-                  onExpand={
-                    localHasVideo && localStream
-                      ? () => setStaged({ id: 'self', name: 'Your screen/camera', stream: localStream })
-                      : undefined
-                  }
-                >
-                  <video
-                    ref={localRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className={localHasVideo ? 'h-full w-full object-cover' : 'hidden'}
-                  />
-                  {!localHasVideo && <Avatar name="You" size={44} />}
-                </Tile>
+            {/* Video Tiles List: Clean row of 16:9 fixed tiles */}
+            <div className="flex gap-2.5 overflow-x-auto max-w-[80vw]">
+              {/* Local self-view */}
+              <Tile
+                label="You"
+                muted={!micOn}
+                hasVideo={localHasVideo}
+                onExpand={
+                  localHasVideo && localStream
+                    ? () => setStaged({ id: 'self', name: 'Your camera/screen', stream: localStream })
+                    : undefined
+                }
+              >
+                <video
+                  ref={localRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={localHasVideo ? 'h-full w-full object-cover' : 'hidden'}
+                />
+                {!localHasVideo && (
+                  <div className="flex h-full w-full items-center justify-center bg-slate-900">
+                    <Avatar name="You" size={42} />
+                  </div>
+                )}
+              </Tile>
 
-                {remoteEntries.map(([userId, stream]) => {
-                  const name = users[userId]?.displayName ?? 'Guest';
-                  const hasVideo = stream.getVideoTracks().length > 0;
-                  return (
-                    <Tile
-                      key={userId}
-                      label={name}
-                      muted={false}
-                      hasVideo={hasVideo}
-                      onExpand={hasVideo ? () => setStaged({ id: userId, name, stream }) : undefined}
-                    >
-                      <audio
-                        ref={(el) => {
-                          if (el) {
-                            remoteAudioEls.current.set(userId, el);
-                            if (el.srcObject !== stream) el.srcObject = stream;
-                            el.play().catch(() => {});
-                          } else {
-                            remoteAudioEls.current.delete(userId);
-                          }
-                        }}
-                        autoPlay
-                        playsInline
-                      />
-                      <video
-                        ref={(el) => {
-                          if (el) {
-                            remoteVideoEls.current.set(userId, el);
-                            if (el.srcObject !== stream) el.srcObject = stream;
-                            el.play().catch(() => {});
-                          } else {
-                            remoteVideoEls.current.delete(userId);
-                          }
-                        }}
-                        autoPlay
-                        playsInline
-                        muted
-                        className={hasVideo ? 'h-full w-full object-cover' : 'hidden'}
-                      />
-                      {!hasVideo && <Avatar name={name} size={44} />}
-                    </Tile>
-                  );
-                })}
-              </div>
+              {/* Remote peers */}
+              {remoteEntries.map(([userId, stream]) => {
+                const name = users[userId]?.displayName ?? 'Guest';
+                const hasVideo = stream.getVideoTracks().length > 0;
+                return (
+                  <Tile
+                    key={userId}
+                    label={name}
+                    muted={false}
+                    hasVideo={hasVideo}
+                    onExpand={hasVideo ? () => setStaged({ id: userId, name, stream }) : undefined}
+                  >
+                    <audio
+                      ref={(el) => {
+                        if (el) {
+                          remoteAudioEls.current.set(userId, el);
+                          if (el.srcObject !== stream) el.srcObject = stream;
+                          el.play().catch(() => {});
+                        } else {
+                          remoteAudioEls.current.delete(userId);
+                        }
+                      }}
+                      autoPlay
+                      playsInline
+                    />
+                    <video
+                      ref={(el) => {
+                        if (el) {
+                          remoteVideoEls.current.set(userId, el);
+                          if (el.srcObject !== stream) el.srcObject = stream;
+                          el.play().catch(() => {});
+                        } else {
+                          remoteVideoEls.current.delete(userId);
+                        }
+                      }}
+                      autoPlay
+                      playsInline
+                      muted
+                      className={hasVideo ? 'h-full w-full object-cover' : 'hidden'}
+                    />
+                    {!hasVideo && (
+                      <div className="flex h-full w-full items-center justify-center bg-slate-900">
+                        <Avatar name={name} size={42} />
+                      </div>
+                    )}
+                  </Tile>
+                );
+              })}
             </div>
-          )}
-        </>
+          </div>
+        </div>
       )}
     </>
   );
@@ -453,10 +294,10 @@ function Tile({
   children: React.ReactNode;
 }) {
   return (
-    <div className="group pointer-events-auto relative grid h-24 w-38 sm:h-26 sm:w-42 shrink-0 place-items-center overflow-hidden rounded-xl border border-surface-3 bg-slate-900 shadow-md">
+    <div className="group pointer-events-auto relative aspect-video w-48 sm:w-52 shrink-0 place-items-center overflow-hidden rounded-xl border border-white/10 bg-slate-900 shadow-md">
       {children}
-      <div className="absolute bottom-1.5 left-2 flex items-center gap-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur">
-        <span className="truncate max-w-[80px]">{label}</span>
+      <div className="absolute bottom-1.5 left-2 flex items-center gap-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur">
+        <span className="truncate max-w-[85px]">{label}</span>
         <span title={muted ? 'Microphone muted' : 'Microphone active'}>
           {muted ? '🔇' : '🎙️'}
         </span>
@@ -468,7 +309,7 @@ function Tile({
           title="Expand to presentation stage"
           aria-label="Expand video"
         >
-          ⤢ Expand
+          ⤢ Stage
         </button>
       )}
     </div>
