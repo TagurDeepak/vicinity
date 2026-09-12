@@ -17,8 +17,13 @@ export class ApiError extends Error {
  * Thin typed fetch wrapper. Attaches the bearer token, parses the standard
  * `{ error: { code, message } }` envelope, and throws `ApiError` on failure.
  */
-export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = useAuthStore.getState().accessToken;
+export async function apiFetch<T>(
+  path: string,
+  options: RequestInit = {},
+  isRetry = false,
+): Promise<T> {
+  const auth = useAuthStore.getState();
+  const token = auth.accessToken;
   const res = await fetch(`${config.apiBase}${path}`, {
     ...options,
     headers: {
@@ -29,6 +34,28 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   });
 
   if (res.status === 204) return undefined as T;
+
+  if (res.status === 401 && !isRetry && !path.startsWith('/auth/')) {
+    const refreshToken = auth.refreshToken;
+    if (refreshToken) {
+      try {
+        const refreshRes = await fetch(`${config.apiBase}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (refreshRes.ok) {
+          const newSession: AuthResponse = await refreshRes.json();
+          auth.setSession(newSession);
+          return apiFetch<T>(path, options, true);
+        }
+      } catch {
+        // Refresh failed
+      }
+    }
+    // If refresh failed or no refreshToken, clear stale session
+    auth.clear();
+  }
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

@@ -102,6 +102,7 @@ export interface ServerToClientEvents {
 
   'zone:updated': (payload: { zone: Zone }) => void;
   'chat:message': (payload: { channelId: string; message: ChatMessage }) => void;
+  'chat:cleared': (payload: { channelId: string }) => void;
 
   // Room locking & knocking
   'room:locked-list': (payload: Array<{ zoneId: string; lockedBy: string; lockedByName: string }>) => void;

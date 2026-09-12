@@ -64,11 +64,11 @@ export function MembersPanel({
               {onStartDm && u.userId !== me && (
                 <button
                   onClick={() => onStartDm(u.userId, u.displayName)}
-                  className="rounded-lg p-1 text-xs text-ink-400 opacity-0 transition group-hover:opacity-100 hover:bg-brand-50 hover:text-brand-600"
+                  className="flex items-center gap-1 rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-brand-100 hover:text-brand-700"
                   title={`Direct message ${u.displayName}`}
                   aria-label={`Direct message ${u.displayName}`}
                 >
-                  💬
+                  💬 DM
                 </button>
               )}
             </li>

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Button } from '@vicinity/ui';
-import type { Zone } from '@vicinity/shared';
+import type { Vec2, Zone } from '@vicinity/shared';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { CallDock } from '@/features/office/CallDock';
 import { ChatPanel } from '@/features/office/ChatPanel';
@@ -22,7 +22,7 @@ import { getSocket } from '@/lib/ws';
 import { useAuthStore } from '@/stores/auth';
 import { usePresenceStore } from '@/stores/presence';
 
-export default function OfficePage({ params }: { params: { workspaceId: string } }) {
+export default function WorkspacePage({ params }: { params: { workspaceId: string } }) {
   const { workspaceId } = params;
   const { ready } = useRequireAuth();
   const token = useAuthStore((s) => s.accessToken);
@@ -33,6 +33,7 @@ export default function OfficePage({ params }: { params: { workspaceId: string }
   const [knocks, setKnocks] = useState<KnockEvent[]>([]);
   const [letInMessage, setLetInMessage] = useState<string | null>(null);
   const [activeDm, setActiveDm] = useState<{ id: string; targetName: string } | null>(null);
+  const [walkToTarget, setWalkToTarget] = useState<Vec2 | null>(null);
   const { move, setStatus, sendChat, enterZone, leaveZone } = useOffice(workspaceId);
   const { toggleMic, toggleCam, toggleShare } = useWebRtc();
 
@@ -188,6 +189,32 @@ export default function OfficePage({ params }: { params: { workspaceId: string }
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {zones.data && zones.data.length > 0 && (
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                const zId = e.target.value;
+                if (!zId) return;
+                const targetZ = zones.data?.find((z) => z.id === zId);
+                if (targetZ) {
+                  setWalkToTarget({
+                    x: targetZ.geometry.x + targetZ.geometry.w / 2,
+                    y: targetZ.geometry.y + targetZ.geometry.h / 2,
+                  });
+                }
+                e.target.value = '';
+              }}
+              className="rounded-xl border border-surface-3 bg-surface-0 px-2.5 py-1.5 text-xs font-semibold text-ink-700 shadow-sm transition hover:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-400 cursor-pointer"
+              title="Quickly navigate your avatar into any room"
+            >
+              <option value="" disabled>🚶 Navigate to Room…</option>
+              {zones.data.map((z) => (
+                <option key={z.id} value={z.id}>
+                  {z.name}
+                </option>
+              ))}
+            </select>
+          )}
           <Button variant="secondary" size="sm" onClick={() => setRoomsOpen(true)}>
             🏢 Rooms
           </Button>
@@ -213,10 +240,12 @@ export default function OfficePage({ params }: { params: { workspaceId: string }
           <OfficeCanvas
             zones={zones.data ?? []}
             lockedZoneIds={lockedZoneIds}
+            walkToTarget={walkToTarget}
             onMove={move}
             onZoneEnter={enterZone}
             onZoneLeave={leaveZone}
             onZoneChange={setCurrentZone}
+            onStartDm={handleStartDm}
           />
           <CallDock />
           {/* Movement hint & Zone badge */}
@@ -271,19 +300,21 @@ export default function OfficePage({ params }: { params: { workspaceId: string }
           )}
         </main>
 
-        <aside className="hidden w-72 shrink-0 rounded-2xl border border-surface-3 bg-surface-0 p-4 shadow-sm shadow-black/5 lg:block">
+        <aside className="hidden w-80 shrink-0 rounded-2xl border border-surface-3 bg-surface-0 p-4 shadow-sm shadow-black/5 lg:block">
           {activeDm ? (
             <ChatPanel
               channelId={activeDm.id}
               dmTargetName={activeDm.targetName}
               onSend={sendChat}
               onCloseDm={() => setActiveDm(null)}
+              onStartDm={handleStartDm}
             />
           ) : workspaceChannel ? (
             <ChatPanel
               channelId={workspaceChannel.id}
               channelName="general"
               onSend={sendChat}
+              onStartDm={handleStartDm}
             />
           ) : (
             <p className="text-sm text-ink-400">Loading chat…</p>

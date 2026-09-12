@@ -5,11 +5,13 @@ import {
   FLOOR_HEIGHT,
   FLOOR_WIDTH,
   PROXIMITY_RADIUS,
+  type PresenceState,
   type Vec2,
   type Zone,
 } from '@vicinity/shared';
+import { Avatar } from '@vicinity/ui';
 import { usePresenceStore } from '@/stores/presence';
-import { getDoorwayForZone, resolveMovement } from './collision';
+import { findPath, getDoorwayForZone, resolveMovement } from './collision';
 
 const SPEED = 260; // world units / second
 
@@ -17,13 +19,14 @@ interface ZoneStyle {
   fill: string;
   border: string;
   icon: string;
+  floorType: 'wood' | 'tile' | 'carpet';
 }
 const ZONE_STYLE: Record<string, ZoneStyle> = {
-  open: { fill: 'rgba(95,92,240,0.06)', border: 'rgba(95,92,240,0.30)', icon: '🌿' },
-  focus: { fill: 'rgba(34,176,125,0.10)', border: 'rgba(34,176,125,0.40)', icon: '🎧' },
-  meeting: { fill: 'rgba(75,65,219,0.12)', border: 'rgba(75,65,219,0.40)', icon: '📊' },
-  lounge: { fill: 'rgba(245,181,68,0.14)', border: 'rgba(214,150,40,0.45)', icon: '☕' },
-  private: { fill: 'rgba(229,72,77,0.10)', border: 'rgba(229,72,77,0.40)', icon: '🔒' },
+  open: { fill: 'rgba(95,92,240,0.06)', border: 'rgba(95,92,240,0.30)', icon: '🌿', floorType: 'tile' },
+  focus: { fill: 'rgba(34,176,125,0.10)', border: 'rgba(34,176,125,0.40)', icon: '🎧', floorType: 'wood' },
+  meeting: { fill: 'rgba(75,65,219,0.12)', border: 'rgba(75,65,219,0.40)', icon: '📊', floorType: 'carpet' },
+  lounge: { fill: 'rgba(245,181,68,0.14)', border: 'rgba(214,150,40,0.45)', icon: '☕', floorType: 'carpet' },
+  private: { fill: 'rgba(229,72,77,0.10)', border: 'rgba(229,72,77,0.40)', icon: '🔒', floorType: 'wood' },
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -57,32 +60,46 @@ export function getZoneAt(zones: Zone[], p: Vec2): Zone | null {
 export function OfficeCanvas({
   zones,
   lockedZoneIds = new Set(),
+  walkToTarget = null,
   onMove,
   onZoneEnter,
   onZoneLeave,
   onZoneChange,
+  onStartDm,
 }: {
   zones: Zone[];
   lockedZoneIds?: Set<string>;
+  walkToTarget?: Vec2 | null;
   onMove: (p: Vec2) => void;
   onZoneEnter?: (zoneId: string) => void;
   onZoneLeave?: (zoneId?: string) => void;
   onZoneChange?: (zone: Zone | null) => void;
+  onStartDm?: (userId: string, displayName: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(FLOOR_WIDTH);
 
   const keys = useRef<Set<string>>(new Set());
-  const target = useRef<Vec2 | null>(null);
+  const pathWaypoints = useRef<Vec2[]>([]);
   const pos = useRef<Vec2>({ x: 200, y: 200 });
   const currentZoneRef = useRef<Zone | null>(null);
+
+  const [selectedUser, setSelectedUser] = useState<PresenceState | null>(null);
+  const [waveToast, setWaveToast] = useState<string | null>(null);
 
   const lockedZoneIdsRef = useRef(lockedZoneIds);
   const onZoneEnterRef = useRef(onZoneEnter);
   const onZoneLeaveRef = useRef(onZoneLeave);
   const onZoneChangeRef = useRef(onZoneChange);
   const onMoveRef = useRef(onMove);
+
+  useEffect(() => {
+    if (walkToTarget) {
+      const path = findPath(pos.current, walkToTarget, zones, lockedZoneIdsRef.current);
+      pathWaypoints.current = path;
+    }
+  }, [walkToTarget, zones]);
   useEffect(() => {
     lockedZoneIdsRef.current = lockedZoneIds;
     onZoneEnterRef.current = onZoneEnter;
@@ -170,17 +187,18 @@ export function OfficeCanvas({
       let targetY = pos.current.y;
 
       if (dx !== 0 || dy !== 0) {
-        target.current = null;
+        pathWaypoints.current = [];
         const len = Math.hypot(dx, dy) || 1;
         targetX += (dx / len) * SPEED * dt;
         targetY += (dy / len) * SPEED * dt;
         moved = true;
-      } else if (target.current) {
-        const tx = target.current.x - pos.current.x;
-        const ty = target.current.y - pos.current.y;
+      } else if (pathWaypoints.current.length > 0) {
+        const nextPoint = pathWaypoints.current[0]!;
+        const tx = nextPoint.x - pos.current.x;
+        const ty = nextPoint.y - pos.current.y;
         const dist = Math.hypot(tx, ty);
-        if (dist < 4) {
-          target.current = null;
+        if (dist < 6) {
+          pathWaypoints.current.shift();
         } else {
           const move = Math.min(SPEED * dt, dist);
           targetX += (tx / dist) * move;
@@ -218,10 +236,13 @@ export function OfficeCanvas({
       // Draw in CSS pixels; scale the backing store for crisp HiDPI rendering.
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // floor backdrop + subtle grid
-      ctx.fillStyle = '#eef1f8';
+      // floor backdrop + corridor walkways
+      ctx.fillStyle = '#f1f4f9';
       ctx.fillRect(0, 0, width, cssHeight);
-      ctx.strokeStyle = 'rgba(61,67,86,0.05)';
+
+      drawCorridorWalkways(ctx, s);
+
+      ctx.strokeStyle = 'rgba(61,67,86,0.04)';
       ctx.lineWidth = 1;
       for (let gx = 0; gx <= FLOOR_WIDTH; gx += 80) {
         ctx.beginPath();
@@ -236,8 +257,33 @@ export function OfficeCanvas({
         ctx.stroke();
       }
 
-      // rooms + furniture with architectural walls
+      // rooms + furniture with architectural walls & textures
       for (const z of zones) drawZone(ctx, z, s, lockedZoneIdsRef.current);
+
+      // Auto-path waypoint visualization
+      if (pathWaypoints.current.length > 0) {
+        ctx.save();
+        ctx.setLineDash([6 * s, 6 * s]);
+        ctx.strokeStyle = 'rgba(99, 102, 241, 0.45)';
+        ctx.lineWidth = 2.5 * s;
+        ctx.beginPath();
+        ctx.moveTo(pos.current.x * s, pos.current.y * s);
+        for (const pt of pathWaypoints.current) {
+          ctx.lineTo(pt.x * s, pt.y * s);
+        }
+        ctx.stroke();
+
+        const dest = pathWaypoints.current[pathWaypoints.current.length - 1]!;
+        const pulse = Math.sin(now / 150) * 2.5 * s;
+        ctx.beginPath();
+        ctx.arc(dest.x * s, dest.y * s, 8 * s + pulse, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(99, 102, 241, 0.22)';
+        ctx.fill();
+        ctx.strokeStyle = '#6366f1';
+        ctx.lineWidth = 1.5 * s;
+        ctx.stroke();
+        ctx.restore();
+      }
 
       const groupSet = new Set(group?.members ?? []);
 
@@ -282,6 +328,7 @@ export function OfficeCanvas({
           isSelf: u.userId === me,
           statusColor: STATUS_COLOR[u.status] ?? '#8b93a7',
           t: now,
+          isSelected: selectedUser?.userId === u.userId,
         });
       }
 
@@ -290,13 +337,55 @@ export function OfficeCanvas({
 
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [width, zones, onMove]);
+  }, [width, zones, onMove, selectedUser]);
 
   const height = width * (FLOOR_HEIGHT / FLOOR_WIDTH);
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
 
+  function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const s = width / FLOOR_WIDTH;
+    const clickX = (e.clientX - rect.left) / s;
+    const clickY = (e.clientY - rect.top) / s;
+
+    // Check if clicked on a coworker avatar
+    const { me, users } = usePresenceStore.getState();
+    let clickedPeer: PresenceState | null = null;
+    for (const u of Object.values(users)) {
+      if (u.userId === me) continue;
+      const dist = Math.hypot(clickX - u.position.x, clickY - u.position.y);
+      if (dist < 28) {
+        clickedPeer = u;
+        break;
+      }
+    }
+
+    if (clickedPeer) {
+      setSelectedUser(clickedPeer);
+      return;
+    }
+
+    setSelectedUser(null);
+
+    // Obstacle-avoiding A* path to the destination without walking through walls
+    const path = findPath(pos.current, { x: clickX, y: clickY }, zones, lockedZoneIdsRef.current);
+    pathWaypoints.current = path;
+  }
+
+  function handleWalkToTeammate(targetUser: PresenceState) {
+    const path = findPath(pos.current, targetUser.position, zones, lockedZoneIdsRef.current);
+    pathWaypoints.current = path;
+    setSelectedUser(null);
+  }
+
+  function handleSendWave(targetUser: PresenceState) {
+    setWaveToast(`👋 You waved at ${targetUser.displayName}!`);
+    setTimeout(() => setWaveToast(null), 3000);
+    setSelectedUser(null);
+  }
+
   return (
-    <div ref={containerRef} className="h-full w-full overflow-hidden rounded-2xl border border-surface-3 bg-surface-1">
+    <div ref={containerRef} className="relative h-full w-full overflow-hidden rounded-2xl border border-surface-3 bg-surface-1">
       <canvas
         ref={canvasRef}
         width={Math.round(width * dpr)}
@@ -304,19 +393,79 @@ export function OfficeCanvas({
         style={{ width, height }}
         className="cursor-pointer"
         role="application"
-        aria-label="Virtual office floor. Use arrow keys or WASD to move your avatar, or click to walk."
+        aria-label="Virtual office floor. Click anywhere to walk without hitting walls, or click an avatar to chat."
         tabIndex={0}
-        onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const s = width / FLOOR_WIDTH;
-          target.current = {
-            x: (e.clientX - rect.left) / s,
-            y: (e.clientY - rect.top) / s,
-          };
-        }}
+        onClick={handleCanvasClick}
       />
+
+      {/* Wave notification toast */}
+      {waveToast && (
+        <div className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 rounded-full bg-surface-0/95 px-4 py-2 text-sm font-semibold text-brand-700 shadow-xl border border-brand-200 backdrop-blur animate-in fade-in slide-in-from-top-2">
+          {waveToast}
+        </div>
+      )}
+
+      {/* Coworker interaction card */}
+      {selectedUser && (
+        <div className="absolute top-4 left-4 z-20 w-72 rounded-2xl border border-surface-3 bg-surface-0/95 p-4 shadow-2xl backdrop-blur animate-in fade-in zoom-in-95">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3">
+              <Avatar name={selectedUser.displayName} src={selectedUser.avatarUrl} size={40} />
+              <div>
+                <h3 className="text-sm font-semibold text-ink-900">{selectedUser.displayName}</h3>
+                <p className="text-xs text-ink-500 capitalize">{selectedUser.status}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setSelectedUser(null)}
+              className="rounded-lg p-1 text-ink-400 hover:bg-surface-2"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="mt-3 flex flex-col gap-2">
+            {onStartDm && (
+              <button
+                onClick={() => {
+                  onStartDm(selectedUser.userId, selectedUser.displayName);
+                  setSelectedUser(null);
+                }}
+                className="flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 px-3 py-2 text-xs font-semibold text-white shadow transition hover:bg-brand-700"
+              >
+                💬 Direct Message
+              </button>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => handleWalkToTeammate(selectedUser)}
+                className="flex items-center justify-center gap-1 rounded-xl bg-surface-2 px-3 py-2 text-xs font-semibold text-ink-700 transition hover:bg-surface-3"
+              >
+                🚶 Walk Over
+              </button>
+              <button
+                onClick={() => handleSendWave(selectedUser)}
+                className="flex items-center justify-center gap-1 rounded-xl bg-surface-2 px-3 py-2 text-xs font-semibold text-ink-700 transition hover:bg-surface-3"
+              >
+                👋 Wave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function drawCorridorWalkways(ctx: CanvasRenderingContext2D, s: number): void {
+  ctx.save();
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.55)';
+  // Main horizontal corridor
+  ctx.fillRect(80 * s, 420 * s, 1440 * s, 120 * s);
+  // Vertical branch corridors
+  ctx.fillRect(400 * s, 100 * s, 110 * s, 760 * s);
+  ctx.fillRect(1000 * s, 100 * s, 110 * s, 760 * s);
+  ctx.restore();
 }
 
 function roundRect(
@@ -349,6 +498,7 @@ interface CharOpts {
   isSelf: boolean;
   statusColor: string;
   t: number;
+  isSelected?: boolean;
 }
 
 /** Draws a small human character ("toy") with a walking bob and name tag. */
@@ -368,6 +518,15 @@ function drawCharacter(
   ctx.ellipse(x, y + 22 * s, 15 * s, 5 * s, 0, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(20,22,40,0.12)';
   ctx.fill();
+
+  // selection ring
+  if (o.isSelected) {
+    ctx.beginPath();
+    ctx.arc(x, cy - 4 * s, 32 * s, 0, Math.PI * 2);
+    ctx.strokeStyle = '#6366f1';
+    ctx.lineWidth = 2.5 * s;
+    ctx.stroke();
+  }
 
   // talking glow
   if (o.talking) {
@@ -469,10 +628,21 @@ function drawZone(
   const isEnclosed = z.type !== 'lounge' && z.type !== 'open';
   const isLocked = lockedZoneIds.has(z.id);
 
-  // 1. Room Floor
+  // 1. Floor Textures
   roundRect(ctx, X, Y, W, H, 14 * s);
-  ctx.fillStyle = style.fill;
-  ctx.fill();
+  ctx.save();
+  ctx.clip();
+
+  if (style.floorType === 'wood') {
+    drawWoodParquet(ctx, X, Y, W, H, s);
+  } else if (style.floorType === 'tile') {
+    drawCeramicTiles(ctx, X, Y, W, H, s);
+  } else {
+    // Carpet base
+    ctx.fillStyle = style.fill;
+    ctx.fillRect(X, Y, W, H);
+  }
+  ctx.restore();
 
   // 2. Architectural Walls & Doorways
   if (isEnclosed) {
@@ -483,7 +653,7 @@ function drawZone(
     const dH = Math.max(door.h * s, 12 * s);
 
     // Door mat / threshold
-    ctx.fillStyle = isLocked ? 'rgba(239, 68, 68, 0.25)' : 'rgba(0, 0, 0, 0.07)';
+    ctx.fillStyle = isLocked ? 'rgba(239, 68, 68, 0.28)' : 'rgba(0, 0, 0, 0.08)';
     if (door.side === 'bottom') {
       ctx.fillRect(dX, Y + H - 5 * s, dW, 8 * s);
     } else if (door.side === 'top') {
@@ -492,9 +662,9 @@ function drawZone(
       ctx.fillRect(dX - (door.side === 'left' ? 3 * s : 5 * s), dY, 8 * s, dH);
     }
 
-    // Solid wall perimeter with doorway gap
-    ctx.lineWidth = 3.5 * s;
-    ctx.strokeStyle = '#475569'; // Slate architectural wall
+    // Outer double-slate wall
+    ctx.lineWidth = 4 * s;
+    ctx.strokeStyle = '#334155'; // Dark slate architectural wall
     ctx.lineCap = 'round';
     ctx.beginPath();
 
@@ -540,7 +710,7 @@ function drawZone(
     // If locked, draw the closed door barrier across the doorway
     if (isLocked) {
       ctx.beginPath();
-      ctx.lineWidth = 4 * s;
+      ctx.lineWidth = 5 * s;
       ctx.strokeStyle = '#ef4444'; // Red locked barrier
       if (door.side === 'top' || door.side === 'bottom') {
         ctx.moveTo(dX, dY);
@@ -558,7 +728,7 @@ function drawZone(
     ctx.stroke();
   }
 
-  // 3. Furniture
+  // 3. Furniture & Props
   drawFurniture(ctx, z.type, X, Y, W, H, s);
 
   // 4. Header pill (icon + name)
@@ -566,15 +736,58 @@ function drawZone(
   const label = isLocked ? `🔒 ${z.name} (LOCKED)` : `${style.icon}  ${z.name}`;
   const tw = ctx.measureText(label).width;
   roundRect(ctx, X + 12 * s, Y + 12 * s, tw + 18 * s, 26 * s, 13 * s);
-  ctx.fillStyle = isLocked ? '#fef2f2' : 'rgba(255,255,255,0.92)';
+  ctx.fillStyle = isLocked ? '#fef2f2' : 'rgba(255,255,255,0.94)';
   ctx.fill();
   ctx.strokeStyle = isLocked ? '#ef4444' : style.border;
   ctx.lineWidth = isLocked ? 1.5 : 1;
   ctx.stroke();
-  ctx.fillStyle = isLocked ? '#b91c1c' : '#3d4356';
+  ctx.fillStyle = isLocked ? '#b91c1c' : '#1e293b';
   ctx.textBaseline = 'middle';
   ctx.fillText(label, X + 21 * s, Y + 25 * s);
   ctx.textBaseline = 'alphabetic';
+}
+
+function drawWoodParquet(ctx: CanvasRenderingContext2D, X: number, Y: number, W: number, H: number, s: number): void {
+  ctx.fillStyle = '#e8dcc8';
+  ctx.fillRect(X, Y, W, H);
+  const plankH = 22 * s;
+  ctx.strokeStyle = 'rgba(180, 150, 120, 0.28)';
+  ctx.lineWidth = 1;
+  const rows = Math.ceil(H / plankH);
+  for (let r = 0; r < rows; r++) {
+    const py = Y + r * plankH;
+    ctx.beginPath();
+    ctx.moveTo(X, py);
+    ctx.lineTo(X + W, py);
+    ctx.stroke();
+    const offset = (r % 2) * 45 * s;
+    for (let px = X + offset; px < X + W; px += 90 * s) {
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px, py + plankH);
+      ctx.stroke();
+    }
+  }
+}
+
+function drawCeramicTiles(ctx: CanvasRenderingContext2D, X: number, Y: number, W: number, H: number, s: number): void {
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(X, Y, W, H);
+  const tileSize = 24 * s;
+  ctx.strokeStyle = 'rgba(203, 213, 225, 0.4)';
+  ctx.lineWidth = 1;
+  for (let x = X; x <= X + W; x += tileSize) {
+    ctx.beginPath();
+    ctx.moveTo(x, Y);
+    ctx.lineTo(x, Y + H);
+    ctx.stroke();
+  }
+  for (let y = Y; y <= Y + H; y += tileSize) {
+    ctx.beginPath();
+    ctx.moveTo(X, y);
+    ctx.lineTo(X + W, y);
+    ctx.stroke();
+  }
 }
 
 function drawFurniture(
@@ -586,89 +799,203 @@ function drawFurniture(
   H: number,
   s: number,
 ): void {
-  const wood = '#d9c3a5';
-  const woodEdge = '#bda583';
-  const furn = '#dfe3ee';
-  const furnEdge = '#c4c9d8';
-  const screen = '#9aa4c0';
+  const wood = '#d4be9f';
+  const woodDark = '#b89f7a';
+  const chairCol = '#334155';
   const cx = X + W / 2;
   const cy = Y + H / 2;
-  ctx.lineWidth = 1.5 * s;
-
-  const desk = (dx: number, dy: number, w: number, h: number): void => {
-    roundRect(ctx, dx, dy, w, h, 4 * s);
-    ctx.fillStyle = wood;
-    ctx.fill();
-    ctx.strokeStyle = woodEdge;
-    ctx.stroke();
-    roundRect(ctx, dx + w * 0.3, dy + 2 * s, w * 0.4, h * 0.4, 2 * s);
-    ctx.fillStyle = screen;
-    ctx.fill();
-  };
 
   if (type === 'meeting') {
+    // 1. Woven Area Rug under table
+    const rw = Math.min(W * 0.72, 280 * s);
+    const rh = Math.min(H * 0.58, 200 * s);
+    roundRect(ctx, cx - rw / 2, cy - rh / 2 + 10 * s, rw, rh, 16 * s);
+    ctx.fillStyle = 'rgba(51, 65, 85, 0.12)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(51, 65, 85, 0.22)';
+    ctx.lineWidth = 1.5 * s;
+    ctx.stroke();
+
+    // 2. Wall-mounted presentation screen / display
+    roundRect(ctx, cx - 44 * s, Y + 5 * s, 88 * s, 14 * s, 3 * s);
+    ctx.fillStyle = '#0f172a';
+    ctx.fill();
+    ctx.strokeStyle = '#475569';
+    ctx.stroke();
+    // Power LED
+    ctx.fillStyle = '#22c55e';
     ctx.beginPath();
-    ctx.ellipse(cx, cy + 6 * s, Math.min(W, H) * 0.26, Math.min(W, H) * 0.16, 0, 0, Math.PI * 2);
+    ctx.arc(cx + 38 * s, Y + 12 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 3. Conference Table with center cable trough
+    const tw = Math.min(W, H) * 0.52;
+    const th = Math.min(W, H) * 0.32;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 10 * s, tw / 2, th / 2, 0, 0, Math.PI * 2);
     ctx.fillStyle = wood;
     ctx.fill();
-    ctx.strokeStyle = woodEdge;
+    ctx.strokeStyle = woodDark;
+    ctx.lineWidth = 2 * s;
     ctx.stroke();
-    const rx = Math.min(W, H) * 0.34;
-    const ry = Math.min(W, H) * 0.24;
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.arc(cx + Math.cos(a) * rx, cy + 6 * s + Math.sin(a) * ry, 5 * s, 0, Math.PI * 2);
-      ctx.fillStyle = furn;
+
+    // Table center speakerphone puck
+    ctx.beginPath();
+    ctx.arc(cx, cy + 10 * s, 7 * s, 0, Math.PI * 2);
+    ctx.fillStyle = '#1e293b';
+    ctx.fill();
+
+    // 4. Executive conference chairs around table
+    const rx = tw / 2 + 14 * s;
+    const ry = th / 2 + 12 * s;
+    const chairCount = W > 400 ? 8 : 6;
+    for (let i = 0; i < chairCount; i++) {
+      const a = (i / chairCount) * Math.PI * 2;
+      const chX = cx + Math.cos(a) * rx;
+      const chY = cy + 10 * s + Math.sin(a) * ry;
+      roundRect(ctx, chX - 5 * s, chY - 5 * s, 10 * s, 10 * s, 3 * s);
+      ctx.fillStyle = chairCol;
       ctx.fill();
-      ctx.strokeStyle = furnEdge;
-      ctx.stroke();
     }
   } else if (type === 'focus') {
-    const dw = W * 0.26;
-    const dh = H * 0.16;
-    desk(X + W * 0.16, cy - dh / 2, dw, dh);
-    desk(X + W * 0.58, cy - dh / 2, dw, dh);
+    // Focus Pod: Dual-monitor desks + warm desk lamp
+    const dw = Math.min(W * 0.42, 110 * s);
+    const dh = 38 * s;
+
+    const drawFocusDesk = (dx: number, dy: number) => {
+      roundRect(ctx, dx, dy, dw, dh, 4 * s);
+      ctx.fillStyle = wood;
+      ctx.fill();
+      ctx.strokeStyle = woodDark;
+      ctx.lineWidth = 1.5 * s;
+      ctx.stroke();
+
+      // Dual monitors
+      roundRect(ctx, dx + dw * 0.18, dy + 3 * s, dw * 0.28, 7 * s, 1.5 * s);
+      ctx.fillStyle = '#0f172a';
+      ctx.fill();
+      roundRect(ctx, dx + dw * 0.52, dy + 3 * s, dw * 0.28, 7 * s, 1.5 * s);
+      ctx.fillStyle = '#0f172a';
+      ctx.fill();
+
+      // Desk lamp with ambient warm glow
+      ctx.beginPath();
+      ctx.arc(dx + dw * 0.9, dy + 8 * s, 18 * s, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.18)';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(dx + dw * 0.9, dy + 8 * s, 4 * s, 0, Math.PI * 2);
+      ctx.fillStyle = '#f59e0b';
+      ctx.fill();
+
+      // Ergonomic task chair
+      roundRect(ctx, dx + dw * 0.35, dy + dh + 4 * s, 18 * s, 16 * s, 4 * s);
+      ctx.fillStyle = '#334155';
+      ctx.fill();
+    };
+
+    drawFocusDesk(X + W * 0.12, cy - dh / 2);
+    if (W > 320) {
+      drawFocusDesk(X + W * 0.56, cy - dh / 2);
+    }
   } else if (type === 'lounge') {
-    const sw = W * 0.34;
-    const sh = H * 0.18;
-    roundRect(ctx, cx - sw / 2, cy - 6 * s, sw, 8 * s, 4 * s);
-    ctx.fillStyle = furn;
+    // Lounge: Sectional sofa, round coffee table & indoor plant
+    const sw = W * 0.42;
+    const sh = H * 0.22;
+
+    // Plush Sofa
+    roundRect(ctx, cx - sw / 2, cy - 8 * s, sw, 10 * s, 5 * s);
+    ctx.fillStyle = '#475569';
     ctx.fill();
-    ctx.strokeStyle = furnEdge;
-    ctx.stroke();
-    roundRect(ctx, cx - sw / 2, cy, sw, sh, 6 * s);
-    ctx.fillStyle = furn;
+    roundRect(ctx, cx - sw / 2, cy, sw, sh, 8 * s);
+    ctx.fillStyle = '#64748b';
     ctx.fill();
-    ctx.stroke();
+
+    // Round coffee table with glass top
     ctx.beginPath();
-    ctx.ellipse(cx, cy + sh + 12 * s, sw * 0.55, 9 * s, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(95,92,240,0.08)';
+    ctx.ellipse(cx, cy + sh + 16 * s, sw * 0.28, 12 * s, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#cbd5e1';
     ctx.fill();
-    drawPlant(ctx, X + W * 0.82, Y + H * 0.7, s);
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 1.5 * s;
+    ctx.stroke();
+
+    // Potted indoor palm
+    drawPlant(ctx, X + W * 0.84, Y + H * 0.68, s);
+    drawPlant(ctx, X + W * 0.14, Y + H * 0.68, s);
   } else if (type === 'private') {
-    roundRect(ctx, cx - W * 0.16, cy - H * 0.1, W * 0.32, H * 0.2, 5 * s);
+    // Private Office: Executive desk, chair, laptop & plant
+    roundRect(ctx, cx - W * 0.22, cy - H * 0.12, W * 0.44, H * 0.24, 6 * s);
     ctx.fillStyle = wood;
     ctx.fill();
-    ctx.strokeStyle = woodEdge;
+    ctx.strokeStyle = woodDark;
+    ctx.lineWidth = 2 * s;
     ctx.stroke();
+
+    // Executive Chair
+    roundRect(ctx, cx - 12 * s, cy - H * 0.12 - 18 * s, 24 * s, 16 * s, 5 * s);
+    ctx.fillStyle = '#1e293b';
+    ctx.fill();
+
+    // Laptop on desk
+    roundRect(ctx, cx - 10 * s, cy - 4 * s, 20 * s, 12 * s, 2 * s);
+    ctx.fillStyle = '#94a3b8';
+    ctx.fill();
+
+    drawPlant(ctx, X + W * 0.82, Y + H * 0.78, s);
   } else {
-    drawPlant(ctx, cx, cy, s);
+    // Breakout Cafe / Kitchen: Marble counter, espresso bar, water cooler
+    const cw = Math.min(W * 0.65, 260 * s);
+    const ch = 28 * s;
+
+    // Marble cafe counter
+    roundRect(ctx, cx - cw / 2, cy - ch / 2, cw, ch, 6 * s);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 1.5 * s;
+    ctx.stroke();
+
+    // Espresso machine
+    roundRect(ctx, cx - cw / 2 + 10 * s, cy - ch / 2 + 4 * s, 22 * s, 20 * s, 3 * s);
+    ctx.fillStyle = '#64748b';
+    ctx.fill();
+
+    // Water cooler
+    ctx.beginPath();
+    ctx.arc(cx + cw / 2 - 16 * s, cy - ch / 2 + 14 * s, 7 * s, 0, Math.PI * 2);
+    ctx.fillStyle = '#38bdf8'; // Blue jug
+    ctx.fill();
+
+    // Barstools along counter
+    for (let i = 0; i < 4; i++) {
+      const sx = cx - cw / 2 + 45 * s + i * 42 * s;
+      ctx.beginPath();
+      ctx.arc(sx, cy + ch / 2 + 10 * s, 6 * s, 0, Math.PI * 2);
+      ctx.fillStyle = '#475569';
+      ctx.fill();
+    }
+
+    drawPlant(ctx, X + W * 0.88, Y + H * 0.75, s);
   }
 }
 
 function drawPlant(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
-  roundRect(ctx, x - 6 * s, y, 12 * s, 12 * s, 2 * s);
-  ctx.fillStyle = '#c98a5e';
+  // Pot
+  roundRect(ctx, x - 7 * s, y, 14 * s, 14 * s, 2 * s);
+  ctx.fillStyle = '#b45309'; // Terracotta
   ctx.fill();
-  ctx.fillStyle = '#4caf7d';
+
+  // Foliage
+  ctx.fillStyle = '#15803d'; // Rich green
   ctx.beginPath();
-  ctx.arc(x, y - 4 * s, 9 * s, 0, Math.PI * 2);
+  ctx.arc(x, y - 5 * s, 11 * s, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(x - 6 * s, y - 2 * s, 6 * s, 0, Math.PI * 2);
+  ctx.arc(x - 7 * s, y - 2 * s, 7 * s, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(x + 6 * s, y - 2 * s, 6 * s, 0, Math.PI * 2);
+  ctx.arc(x + 7 * s, y - 2 * s, 7 * s, 0, Math.PI * 2);
   ctx.fill();
 }

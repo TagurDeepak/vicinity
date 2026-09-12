@@ -19,6 +19,11 @@ export function broadcastChatMessage(channelId: string, message: ChatMessage): v
   io?.to(channelRoom(channelId)).emit('chat:message', { channelId, message });
 }
 
+/** Broadcasts that a channel's messages were cleared. */
+export function broadcastChatCleared(channelId: string): void {
+  io?.to(channelRoom(channelId)).emit('chat:cleared', { channelId });
+}
+
 export function channelRoom(channelId: string): string {
   return `channel:${channelId}`;
 }

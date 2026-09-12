@@ -127,3 +127,9 @@ export function getOrCreateDm(workspaceId: string, targetUserId: string): Promis
     body: JSON.stringify({ targetUserId }),
   });
 }
+
+export function clearMessages(channelId: string): Promise<void> {
+  return apiFetch(`/channels/${channelId}/messages`, {
+    method: 'DELETE',
+  });
+}

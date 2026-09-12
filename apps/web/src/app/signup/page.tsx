@@ -69,7 +69,19 @@ function SignupForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            {error && <p className="text-sm text-danger-600">{error}</p>}
+            {error && (
+              <div className="rounded-xl bg-danger-50 p-3 text-sm text-danger-700">
+                <p>{error}</p>
+                {error.toLowerCase().includes('already exists') && (
+                  <Link
+                    href={`/login?redirect=${encodeURIComponent(redirect)}&email=${encodeURIComponent(email)}`}
+                    className="mt-2 block font-semibold text-brand-700 underline hover:text-brand-900"
+                  >
+                    Click here to sign in with this email →
+                  </Link>
+                )}
+              </div>
+            )}
             <Button type="submit" disabled={loading}>
               {loading ? 'Creating…' : 'Create account'}
             </Button>

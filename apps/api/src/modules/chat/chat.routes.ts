@@ -4,7 +4,7 @@ import type { ChatMessage } from '@vicinity/shared';
 import { asyncHandler } from '../../lib/async-handler';
 import { requireAuth } from '../../middleware/auth';
 import { validate } from '../../middleware/validate';
-import { broadcastChatMessage } from '../../realtime/broadcast';
+import { broadcastChatCleared, broadcastChatMessage } from '../../realtime/broadcast';
 import * as service from './chat.service';
 
 export const chatRouter = Router();
@@ -45,6 +45,15 @@ chatRouter.post(
     // Persist first, then fan out to live subscribers.
     broadcastChatMessage(message.channelId, serialize(message));
     res.status(201).json(message);
+  }),
+);
+
+chatRouter.delete(
+  '/channels/:channelId/messages',
+  asyncHandler(async (req, res) => {
+    await service.clearChannelMessages(req.user!.id, req.params.channelId);
+    broadcastChatCleared(req.params.channelId);
+    res.status(204).end();
   }),
 );
 

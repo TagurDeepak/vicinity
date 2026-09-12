@@ -45,3 +45,35 @@ describe('zone detection', () => {
     expect(getZoneAt(sampleZones, { x: 301, y: 150 })).toBeNull();
   });
 });
+
+describe('obstacle-avoiding pathfinding', () => {
+  const { findPath } = require('../features/office/collision');
+  const sampleZones = [
+    {
+      id: 'z1',
+      workspaceId: 'ws1',
+      name: 'Meeting Room',
+      type: 'meeting' as const,
+      geometry: { x: 100, y: 100, w: 200, h: 200 },
+      isPrivate: true,
+      audioIsolated: true,
+    },
+  ];
+
+  it('generates direct path when line of sight is clear in open space', () => {
+    const path = findPath({ x: 50, y: 50 }, { x: 80, y: 50 }, sampleZones);
+    expect(path).toHaveLength(1);
+    expect(path[0].x).toBe(80);
+    expect(path[0].y).toBe(50);
+  });
+
+  it('finds a waypoint path that avoids solid walls when entering a room', () => {
+    // Start north of room (y=50), target inside room (y=150)
+    // Door is at bottom (y=300). Path must navigate around wall to enter.
+    const path = findPath({ x: 200, y: 50 }, { x: 200, y: 150 }, sampleZones);
+    expect(path.length).toBeGreaterThan(0);
+    const finalStep = path[path.length - 1];
+    expect(finalStep.x).toBe(200);
+    expect(finalStep.y).toBe(150);
+  });
+});

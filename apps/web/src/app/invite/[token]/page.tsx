@@ -94,9 +94,14 @@ export default function InviteAcceptPage({ params }: { params: { token: string }
           {error && (
             <div className="space-y-3">
               <p className="rounded-xl bg-danger-50 p-3 text-sm text-danger-700">{error}</p>
-              <Button variant="secondary" onClick={() => router.push('/lobby')}>
-                Return to lobby
-              </Button>
+              <div className="flex flex-col gap-2.5">
+                <Link href={`/login?redirect=${encodeURIComponent(`/invite/${token}`)}`}>
+                  <Button className="w-full">Sign in to workspace</Button>
+                </Link>
+                <Button variant="secondary" onClick={() => router.push('/lobby')}>
+                  Return to lobby
+                </Button>
+              </div>
             </div>
           )}
         </CardBody>

@@ -52,6 +52,13 @@ export async function postMessage(
   });
 }
 
+export async function clearChannelMessages(userId: string, channelId: string) {
+  await assertChannelAccess(userId, channelId);
+  await prisma.message.deleteMany({
+    where: { channelId },
+  });
+}
+
 /** Lists the workspace- and zone-scoped channels a member can read. */
 export async function listWorkspaceChannels(userId: string, workspaceId: string) {
   const membership = await prisma.membership.findUnique({

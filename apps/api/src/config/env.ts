@@ -25,7 +25,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().min(1),
 
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
-  JWT_ACCESS_TTL: z.coerce.number().default(900),
+  JWT_ACCESS_TTL: z.coerce.number().default(604_800),
   JWT_REFRESH_TTL: z.coerce.number().default(1_209_600),
   AUTH_MODE: z.enum(['local', 'entra']).default('local'),
 

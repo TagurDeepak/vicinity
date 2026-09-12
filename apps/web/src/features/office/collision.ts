@@ -181,3 +181,208 @@ export function resolveMovement(
 
   return { x: resolvedX, y: resolvedY };
 }
+
+const GRID_SIZE = 24;
+const COLS = Math.ceil(FLOOR_WIDTH / GRID_SIZE); // 67
+const ROWS = Math.ceil(FLOOR_HEIGHT / GRID_SIZE); // 40
+
+/**
+ * Checks if a line segment between p1 and p2 has direct clear line of sight
+ * without intersecting any walls or world bounds.
+ */
+export function hasLineOfSight(
+  p1: Vec2,
+  p2: Vec2,
+  walls: WallSegment[],
+  buffer = AVATAR_RADIUS + 2,
+): boolean {
+  const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  const steps = Math.max(2, Math.ceil(dist / 10));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const x = p1.x + (p2.x - p1.x) * t;
+    const y = p1.y + (p2.y - p1.y) * t;
+    if (collidesWithWalls(x, y, walls, buffer)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Finds an obstacle-avoiding waypoint path from `start` to `goal` using A*.
+ * Returns an array of waypoints to follow, or [goal] if direct line of sight exists.
+ */
+export function findPath(
+  start: Vec2,
+  goal: Vec2,
+  zones: Zone[],
+  lockedZoneIds: Set<string> = new Set(),
+): Vec2[] {
+  const { walls } = getWallSegments(zones, lockedZoneIds);
+
+  const clampedGoal: Vec2 = {
+    x: Math.max(20, Math.min(FLOOR_WIDTH - 20, goal.x)),
+    y: Math.max(20, Math.min(FLOOR_HEIGHT - 20, goal.y)),
+  };
+
+  // If there's already direct clear line of sight, head straight to goal!
+  if (hasLineOfSight(start, clampedGoal, walls)) {
+    return [clampedGoal];
+  }
+
+  const cellX = (c: number) => c * GRID_SIZE + GRID_SIZE / 2;
+  const cellY = (r: number) => r * GRID_SIZE + GRID_SIZE / 2;
+
+  const startCol = Math.max(0, Math.min(COLS - 1, Math.floor(start.x / GRID_SIZE)));
+  const startRow = Math.max(0, Math.min(ROWS - 1, Math.floor(start.y / GRID_SIZE)));
+  let goalCol = Math.max(0, Math.min(COLS - 1, Math.floor(clampedGoal.x / GRID_SIZE)));
+  let goalRow = Math.max(0, Math.min(ROWS - 1, Math.floor(clampedGoal.y / GRID_SIZE)));
+
+  // If goal cell is colliding with a wall, search nearby unblocked cells
+  if (collidesWithWalls(cellX(goalCol), cellY(goalRow), walls, AVATAR_RADIUS + 2)) {
+    let bestDist = Infinity;
+    let foundCol = goalCol;
+    let foundRow = goalRow;
+    for (let r = Math.max(0, goalRow - 4); r <= Math.min(ROWS - 1, goalRow + 4); r++) {
+      for (let c = Math.max(0, goalCol - 4); c <= Math.min(COLS - 1, goalCol + 4); c++) {
+        const cx = cellX(c);
+        const cy = cellY(r);
+        if (!collidesWithWalls(cx, cy, walls, AVATAR_RADIUS + 2)) {
+          const d = Math.hypot(cx - clampedGoal.x, cy - clampedGoal.y);
+          if (d < bestDist) {
+            bestDist = d;
+            foundCol = c;
+            foundRow = r;
+          }
+        }
+      }
+    }
+    goalCol = foundCol;
+    goalRow = foundRow;
+  }
+
+  const toKey = (c: number, r: number) => r * COLS + c;
+  const startKey = toKey(startCol, startRow);
+  const goalKey = toKey(goalCol, goalRow);
+
+  if (startKey === goalKey) {
+    return [clampedGoal];
+  }
+
+  const openSet = new Set<number>([startKey]);
+  const cameFrom = new Map<number, number>();
+  const gScore = new Map<number, number>([[startKey, 0]]);
+  const fScore = new Map<number, number>([
+    [startKey, Math.hypot(startCol - goalCol, startRow - goalRow)],
+  ]);
+
+  const directions = [
+    { dc: 1, dr: 0, cost: 1 },
+    { dc: -1, dr: 0, cost: 1 },
+    { dc: 0, dr: 1, cost: 1 },
+    { dc: 0, dr: -1, cost: 1 },
+    { dc: 1, dr: 1, cost: 1.414 },
+    { dc: 1, dr: -1, cost: 1.414 },
+    { dc: -1, dr: 1, cost: 1.414 },
+    { dc: -1, dr: -1, cost: 1.414 },
+  ];
+
+  let iterations = 0;
+  const maxIterations = 3000;
+
+  while (openSet.size > 0 && iterations++ < maxIterations) {
+    let currentKey = -1;
+    let lowestF = Infinity;
+    for (const k of openSet) {
+      const f = fScore.get(k) ?? Infinity;
+      if (f < lowestF) {
+        lowestF = f;
+        currentKey = k;
+      }
+    }
+
+    if (currentKey === goalKey) {
+      // Reconstruct path
+      const rawWaypoints: Vec2[] = [];
+      let curr: number | undefined = goalKey;
+      while (curr !== undefined) {
+        const c = curr % COLS;
+        const r = Math.floor(curr / COLS);
+        rawWaypoints.unshift({ x: cellX(c), y: cellY(r) });
+        curr = cameFrom.get(curr);
+      }
+
+      if (rawWaypoints.length > 0) {
+        rawWaypoints[rawWaypoints.length - 1] = clampedGoal;
+      }
+
+      return smoothPath(start, rawWaypoints, walls);
+    }
+
+    openSet.delete(currentKey);
+    const currC = currentKey % COLS;
+    const currR = Math.floor(currentKey / COLS);
+    const currentG = gScore.get(currentKey) ?? Infinity;
+
+    for (const { dc, dr, cost } of directions) {
+      const nc = currC + dc;
+      const nr = currR + dr;
+      if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS) continue;
+
+      const neighborKey = toKey(nc, nr);
+      const nx = cellX(nc);
+      const ny = cellY(nr);
+
+      // Check collision
+      if (collidesWithWalls(nx, ny, walls, AVATAR_RADIUS + 2)) continue;
+
+      // Prevent cutting diagonal corners across walls
+      if (dc !== 0 && dr !== 0) {
+        if (
+          collidesWithWalls(cellX(currC + dc), cellY(currR), walls, AVATAR_RADIUS) ||
+          collidesWithWalls(cellX(currC), cellY(currR + dr), walls, AVATAR_RADIUS)
+        ) {
+          continue;
+        }
+      }
+
+      const tentativeG = currentG + cost;
+      if (tentativeG < (gScore.get(neighborKey) ?? Infinity)) {
+        cameFrom.set(neighborKey, currentKey);
+        gScore.set(neighborKey, tentativeG);
+        const h = Math.hypot(nc - goalCol, nr - goalRow);
+        fScore.set(neighborKey, tentativeG + h);
+        openSet.add(neighborKey);
+      }
+    }
+  }
+
+  return [clampedGoal];
+}
+
+/**
+ * Removes unnecessary intermediate waypoints if direct line of sight is clear.
+ */
+function smoothPath(start: Vec2, waypoints: Vec2[], walls: WallSegment[]): Vec2[] {
+  if (waypoints.length <= 1) return waypoints;
+
+  const smoothed: Vec2[] = [];
+  let currentOrigin = start;
+  let i = 0;
+
+  while (i < waypoints.length) {
+    let furthest = i;
+    for (let j = waypoints.length - 1; j >= i; j--) {
+      if (hasLineOfSight(currentOrigin, waypoints[j]!, walls)) {
+        furthest = j;
+        break;
+      }
+    }
+    smoothed.push(waypoints[furthest]!);
+    currentOrigin = waypoints[furthest]!;
+    i = furthest + 1;
+  }
+
+  return smoothed;
+}
