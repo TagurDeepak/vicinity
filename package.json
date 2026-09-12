@@ -16,13 +16,18 @@
     "typecheck": "turbo run typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
-    "prisma:migrate": "prisma migrate dev --schema prisma/schema.prisma",
-    "prisma:push": "prisma db push --schema prisma/schema.prisma",
-    "prisma:seed": "ts-node --project prisma/tsconfig.json prisma/seed.ts",
+    "prisma:generate": "npx prisma generate --schema prisma/schema.prisma",
+    "prisma:migrate": "npx prisma migrate dev --schema prisma/schema.prisma",
+    "prisma:push": "npx prisma db push --schema prisma/schema.prisma",
+    "prisma:seed": "npx ts-node --project prisma/tsconfig.json prisma/seed.ts",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "dev:db": "node scripts/pg-server.mjs"
+  },
+  "dependencies": {
+    "prisma": "^5.16.1",
+    "turbo": "^2.0.6",
+    "typescript": "^5.5.3"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.4",
@@ -34,10 +39,7 @@
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.3.2",
-    "prisma": "^5.16.1",
-    "ts-node": "^10.9.2",
-    "turbo": "^2.0.6",
-    "typescript": "^5.5.3"
+    "ts-node": "^10.9.2"
   },
   "engines": {
     "node": ">=20.0.0"
