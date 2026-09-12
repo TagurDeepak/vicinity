@@ -20,6 +20,8 @@ import {
   drawCampusTrees,
   drawCampusStreetLamps,
   drawCampusFurniture,
+  drawCampus3DBackdrop,
+  drawCampusFountainRipples,
 } from './campus-render';
 
 const SPEED = 260; // world units / second
@@ -66,6 +68,32 @@ export function getZoneAt(zones: Zone[], p: Vec2): Zone | null {
   return null;
 }
 
+export function getCameraTransform(
+  container: { width: number; height: number },
+  currentPos: Vec2,
+  currentZoom: number | null,
+  offset: Vec2,
+  isCampusTheme: boolean,
+) {
+  const fw = FLOOR_WIDTH;
+  const fh = isCampusTheme ? 1080 : FLOOR_HEIGHT;
+  const fitScale = Math.min(container.width / fw, container.height / fh);
+
+  if (currentZoom === null) {
+    // Fit Screen mode: 100% of all rooms are guaranteed visible without cropping
+    const s = fitScale;
+    const panX = (container.width - fw * s) / 2 + offset.x;
+    const panY = (container.height - fh * s) / 2 + offset.y;
+    return { s, panX, panY, isFit: true, fitScale };
+  } else {
+    // Zoomed in: camera follows the avatar with drag offset
+    const s = Math.max(fitScale * 0.75, Math.min(fitScale * 3.5, currentZoom));
+    const panX = container.width / 2 - currentPos.x * s + offset.x;
+    const panY = container.height / 2 - currentPos.y * s + offset.y;
+    return { s, panX, panY, isFit: false, fitScale };
+  }
+}
+
 export function OfficeCanvas({
   zones,
   layoutTheme,
@@ -96,7 +124,24 @@ export function OfficeCanvas({
     );
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(FLOOR_WIDTH);
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({
+    width: FLOOR_WIDTH,
+    height: isCampus ? 1080 : FLOOR_HEIGHT,
+  });
+  const [zoom, setZoom] = useState<number | null>(null); // null = auto "Fit Screen"
+  const [cameraOffset, setCameraOffset] = useState<Vec2>({ x: 0, y: 0 });
+
+  const zoomRef = useRef<number | null>(zoom);
+  zoomRef.current = zoom;
+  const cameraOffsetRef = useRef<Vec2>(cameraOffset);
+  cameraOffsetRef.current = cameraOffset;
+  const containerSizeRef = useRef(containerSize);
+  containerSizeRef.current = containerSize;
+
+  const isPointerDown = useRef(false);
+  const pointerStart = useRef<Vec2>({ x: 0, y: 0 });
+  const lastPointer = useRef<Vec2>({ x: 0, y: 0 });
+  const hasDragged = useRef(false);
 
   const keys = useRef<Set<string>>(new Set());
   const pathWaypoints = useRef<Vec2[]>([]);
@@ -133,12 +178,17 @@ export function OfficeCanvas({
     new Map(),
   );
 
-  // Track container width for responsive scaling.
+  // Track container width AND height so camera always fits the entire floor without cutting off southern rooms.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
-      if (entry) setWidth(entry.contentRect.width);
+      if (entry && entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+        setContainerSize({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        });
+      }
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -188,7 +238,6 @@ export function OfficeCanvas({
     let raf = 0;
     let last = performance.now();
     const dpr = window.devicePixelRatio || 1;
-    const scale = () => width / FLOOR_WIDTH;
 
     const step = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.05);
@@ -269,21 +318,43 @@ export function OfficeCanvas({
       }
 
       // --- draw ---
-      const s = scale();
-      const cssHeight = width * (FLOOR_HEIGHT / FLOOR_WIDTH);
+      const { s, panX, panY } = getCameraTransform(
+        containerSizeRef.current,
+        pos.current,
+        zoomRef.current,
+        cameraOffsetRef.current,
+        isCampus,
+      );
+      const floorW = FLOOR_WIDTH;
+      const floorH = isCampus ? 1080 : FLOOR_HEIGHT;
       const { me, users, group } = usePresenceStore.getState();
-      // Draw in CSS pixels; scale the backing store for crisp HiDPI rendering.
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+      // Clear full canvas in CSS pixels; backing store is multiplied by dpr
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = '#0a0d14';
+      ctx.fillRect(0, 0, containerSizeRef.current.width, containerSizeRef.current.height);
+
+      // Apply camera viewport translation
+      ctx.save();
+      ctx.translate(panX, panY);
+
+      let rendered3D = false;
       if (isCampus) {
-        drawCampusGrass(ctx, width, cssHeight, s);
-        drawCampusWalkways(ctx, s);
-        drawCampusOutdoorGardens(ctx, s);
-        drawCampusFountainsAndPlaza(ctx, s, now);
+        rendered3D = drawCampus3DBackdrop(ctx, s, floorH);
+        if (!rendered3D) {
+          drawCampusGrass(ctx, floorW * s, floorH * s, s);
+          drawCampusWalkways(ctx, s);
+          drawCampusOutdoorGardens(ctx, s);
+        }
+        if (rendered3D) {
+          drawCampusFountainRipples(ctx, s, now);
+        } else {
+          drawCampusFountainsAndPlaza(ctx, s, now);
+        }
       } else {
-        // floor backdrop + corridor walkways
+        // Floor backdrop + corridor walkways for standard office
         ctx.fillStyle = '#f1f4f9';
-        ctx.fillRect(0, 0, width, cssHeight);
+        ctx.fillRect(0, 0, floorW * s, floorH * s);
 
         drawCorridorWalkways(ctx, s);
 
@@ -292,21 +363,21 @@ export function OfficeCanvas({
         for (let gx = 0; gx <= FLOOR_WIDTH; gx += 80) {
           ctx.beginPath();
           ctx.moveTo(gx * s, 0);
-          ctx.lineTo(gx * s, cssHeight);
+          ctx.lineTo(gx * s, floorH * s);
           ctx.stroke();
         }
         for (let gy = 0; gy <= FLOOR_HEIGHT; gy += 80) {
           ctx.beginPath();
           ctx.moveTo(0, gy * s);
-          ctx.lineTo(width, gy * s);
+          ctx.lineTo(floorW * s, gy * s);
           ctx.stroke();
         }
       }
 
-      // rooms + furniture with architectural walls & textures
-      for (const z of zones) drawZone(ctx, z, s, lockedZoneIdsRef.current, isCampus);
+      // Rooms + furniture with architectural walls & textures
+      for (const z of zones) drawZone(ctx, z, s, lockedZoneIdsRef.current, isCampus, rendered3D);
 
-      if (isCampus) {
+      if (isCampus && !rendered3D) {
         drawCampusTrees(ctx, s);
         drawCampusStreetLamps(ctx, s);
       }
@@ -338,7 +409,7 @@ export function OfficeCanvas({
 
       const groupSet = new Set(group?.members ?? []);
 
-      // proximity ring around me
+      // Proximity ring around me
       if (me && users[me]) {
         const m = users[me]!;
         const cx = m.position.x * s;
@@ -354,7 +425,7 @@ export function OfficeCanvas({
         ctx.setLineDash([]);
       }
 
-      // avatars — painter's order by y so nearer ones overlap correctly
+      // Avatars — painter's order by y so nearer ones overlap correctly
       const roster = Object.values(users).sort((a, b) => a.position.y - b.position.y);
       for (const u of roster) {
         const x = u.position.x * s;
@@ -383,23 +454,112 @@ export function OfficeCanvas({
         });
       }
 
+      ctx.restore();
+
       raf = requestAnimationFrame(step);
     };
 
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [width, zones, onMove, selectedUser]);
+  }, [containerSize, zones, onMove, selectedUser, zoom, cameraOffset]);
 
-  const height = width * (FLOOR_HEIGHT / FLOOR_WIDTH);
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
 
-  function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const s = width / FLOOR_WIDTH;
-    const clickX = (e.clientX - rect.left) / s;
-    const clickY = (e.clientY - rect.top) / s;
+  // Camera Zoom & Pan Controls
+  const floorW = FLOOR_WIDTH;
+  const floorH = isCampus ? 1080 : FLOOR_HEIGHT;
 
-    // Check if clicked on a coworker avatar
+  function handleZoomIn() {
+    const fitScale = Math.min(containerSize.width / floorW, containerSize.height / floorH);
+    const curZoom = zoom ?? fitScale;
+    const nextZoom = Math.min(fitScale * 3.5, curZoom * 1.25);
+    setZoom(nextZoom);
+  }
+
+  function handleZoomOut() {
+    const fitScale = Math.min(containerSize.width / floorW, containerSize.height / floorH);
+    const curZoom = zoom ?? fitScale;
+    const nextZoom = curZoom * 0.8;
+    if (nextZoom <= fitScale * 1.05) {
+      setZoom(null);
+      setCameraOffset({ x: 0, y: 0 });
+    } else {
+      setZoom(nextZoom);
+    }
+  }
+
+  function handleResetFit() {
+    setZoom(null);
+    setCameraOffset({ x: 0, y: 0 });
+  }
+
+  function handleWheel(e: React.WheelEvent<HTMLCanvasElement>) {
+    e.preventDefault();
+    const fitScale = Math.min(containerSize.width / floorW, containerSize.height / floorH);
+    const curZoom = zoom ?? fitScale;
+    const factor = e.deltaY < 0 ? 1.12 : 0.89;
+    const nextZoom = curZoom * factor;
+    if (nextZoom <= fitScale * 1.02) {
+      setZoom(null);
+      setCameraOffset({ x: 0, y: 0 });
+    } else {
+      setZoom(Math.min(fitScale * 3.5, nextZoom));
+    }
+  }
+
+  function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (e.button !== 0) return;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    isPointerDown.current = true;
+    pointerStart.current = { x: e.clientX, y: e.clientY };
+    lastPointer.current = { x: e.clientX, y: e.clientY };
+    hasDragged.current = false;
+  }
+
+  function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!isPointerDown.current) return;
+    const dx = e.clientX - lastPointer.current.x;
+    const dy = e.clientY - lastPointer.current.y;
+    const totalDist = Math.hypot(e.clientX - pointerStart.current.x, e.clientY - pointerStart.current.y);
+    if (totalDist > 5) {
+      hasDragged.current = true;
+      if (zoomRef.current === null) {
+        const fitScale = Math.min(containerSize.width / floorW, containerSize.height / floorH);
+        setZoom(fitScale);
+      }
+      setCameraOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+    }
+    lastPointer.current = { x: e.clientX, y: e.clientY };
+  }
+
+  function handlePointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!isPointerDown.current) return;
+    isPointerDown.current = false;
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {}
+
+    if (hasDragged.current) return;
+
+    // Was a click!
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const { s, panX, panY } = getCameraTransform(
+      containerSizeRef.current,
+      pos.current,
+      zoomRef.current,
+      cameraOffsetRef.current,
+      isCampus,
+    );
+
+    const clickX = (mouseX - panX) / s;
+    const clickY = (mouseY - panY) / s;
+
+    // Check if clicked on coworker avatar
     const { me, users } = usePresenceStore.getState();
     let clickedPeer: PresenceState | null = null;
     for (const u of Object.values(users)) {
@@ -436,18 +596,57 @@ export function OfficeCanvas({
   }
 
   return (
-    <div ref={containerRef} className="relative h-full w-full overflow-hidden rounded-2xl border border-surface-3 bg-surface-1">
+    <div
+      ref={containerRef}
+      className="relative h-full w-full overflow-hidden rounded-2xl border border-surface-3 bg-slate-950 select-none"
+    >
       <canvas
         ref={canvasRef}
-        width={Math.round(width * dpr)}
-        height={Math.round(height * dpr)}
-        style={{ width, height }}
-        className="cursor-pointer"
+        width={Math.round(containerSize.width * dpr)}
+        height={Math.round(containerSize.height * dpr)}
+        style={{ width: '100%', height: '100%' }}
+        className="cursor-grab active:cursor-grabbing"
         role="application"
-        aria-label="Virtual office floor. Click anywhere to walk without hitting walls, or click an avatar to chat."
+        aria-label="Virtual office floor. Click to walk, or drag to pan around."
         tabIndex={0}
-        onClick={handleCanvasClick}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onWheel={handleWheel}
       />
+
+      {/* Floating Camera Controls HUD */}
+      <div className="absolute bottom-4 right-4 z-20 flex items-center gap-1 rounded-2xl border border-white/10 bg-slate-900/90 p-1.5 shadow-2xl backdrop-blur">
+        <button
+          onClick={handleZoomOut}
+          className="flex h-7 w-7 items-center justify-center rounded-xl text-sm font-bold text-slate-200 transition hover:bg-white/10 active:scale-95"
+          title="Zoom Out"
+          aria-label="Zoom Out"
+        >
+          −
+        </button>
+        <button
+          onClick={handleResetFit}
+          className={`flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs font-semibold transition active:scale-95 ${
+            zoom === null
+              ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30'
+              : 'text-slate-300 hover:bg-white/10'
+          }`}
+          title="Fit Entire Floor to Screen"
+          aria-label="Fit Screen"
+        >
+          <span>⤢</span>
+          <span>Fit Screen</span>
+        </button>
+        <button
+          onClick={handleZoomIn}
+          className="flex h-7 w-7 items-center justify-center rounded-xl text-sm font-bold text-slate-200 transition hover:bg-white/10 active:scale-95"
+          title="Zoom In"
+          aria-label="Zoom In"
+        >
+          +
+        </button>
+      </div>
 
       {/* Wave notification toast */}
       {waveToast && (
@@ -552,7 +751,7 @@ interface CharOpts {
   isSelected?: boolean;
 }
 
-/** Draws a sleek, premier modern executive token avatar with status jewels, audio ripples, and directional indicators. */
+/** Draws a premier, top-down 3D styled walking human character with animated stepping legs, swinging arms, tailored suit blazer, volumetric hair, and interactive indicators. */
 function drawCharacter(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -560,136 +759,221 @@ function drawCharacter(
   s: number,
   o: CharOpts,
 ): void {
-  const bob = o.moving ? Math.sin(o.phase) * 2.5 * s : 0;
-  const cy = y + bob;
+  ctx.save();
 
-  // 1. Multilayer Ground Shadow
+  // Vertical bobbing when walking
+  const bob = o.moving ? Math.abs(Math.sin(o.phase * 1.2)) * 2.2 * s : 0;
+  const cy = y - bob;
+
+  // 1. Multilayer Ground Ambient Shadow (Contact shadow under human)
   ctx.beginPath();
-  ctx.ellipse(x, y + 18 * s, 16 * s, 6 * s, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.18)';
+  const shadowW = (16 + (o.moving ? Math.sin(o.phase) * 1.5 : 0)) * s;
+  ctx.ellipse(x, y + 14 * s, shadowW, 6 * s, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.28)';
   ctx.fill();
 
   // 2. Speaking Audio Halo Waves
   if (o.talking) {
     const pulsePhase = (o.t / 140) % 1;
-    const r1 = (20 + pulsePhase * 14) * s;
-    const a1 = (1 - pulsePhase) * 0.5;
+    const r1 = (22 + pulsePhase * 16) * s;
+    const a1 = (1 - pulsePhase) * 0.55;
     ctx.beginPath();
     ctx.arc(x, cy, r1, 0, Math.PI * 2);
     ctx.strokeStyle = `rgba(99, 102, 241, ${a1})`;
-    ctx.lineWidth = 2 * s;
+    ctx.lineWidth = 2.2 * s;
     ctx.stroke();
 
     const pulsePhase2 = (o.t / 140 + 0.5) % 1;
-    const r2 = (20 + pulsePhase2 * 14) * s;
-    const a2 = (1 - pulsePhase2) * 0.4;
+    const r2 = (22 + pulsePhase2 * 16) * s;
+    const a2 = (1 - pulsePhase2) * 0.45;
     ctx.beginPath();
     ctx.arc(x, cy, r2, 0, Math.PI * 2);
     ctx.strokeStyle = `rgba(56, 189, 248, ${a2})`;
-    ctx.lineWidth = 1.5 * s;
+    ctx.lineWidth = 1.6 * s;
     ctx.stroke();
   }
 
-  // 3. Selection Glow
+  // 3. Selection Highlight Ring
   if (o.isSelected) {
     ctx.beginPath();
-    ctx.arc(x, cy, 26 * s, 0, Math.PI * 2);
+    ctx.arc(x, cy, 24 * s, 0, Math.PI * 2);
     ctx.strokeStyle = '#38bdf8';
     ctx.lineWidth = 2.5 * s;
     ctx.stroke();
   }
 
-  // 4. Directional Heading Indicator (when walking)
-  if (o.moving) {
-    const arrowX = x + o.facing * 20 * s;
-    ctx.beginPath();
-    ctx.moveTo(arrowX + o.facing * 3 * s, cy);
-    ctx.lineTo(arrowX - o.facing * 4 * s, cy - 5 * s);
-    ctx.lineTo(arrowX - o.facing * 4 * s, cy + 5 * s);
-    ctx.closePath();
-    ctx.fillStyle = o.isSelf ? '#38bdf8' : '#e2e8f0';
-    ctx.fill();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1 * s;
-    ctx.stroke();
-  }
+  // 4. Stepping Legs & Shoes (Walking animation)
+  const legStride = o.moving ? Math.sin(o.phase) * 6 * s : 0;
+  const footSpacing = 4.5 * s;
 
-  // 5. Premier Executive Token Disc (Radius 18s)
-  // Outer Bezel Gradient
-  const bezelGrad = ctx.createLinearGradient(x - 18 * s, cy - 18 * s, x + 18 * s, cy + 18 * s);
-  if (o.isSelf) {
-    bezelGrad.addColorStop(0, '#38bdf8');
-    bezelGrad.addColorStop(0.5, '#6366f1');
-    bezelGrad.addColorStop(1, '#4f46e5');
-  } else {
-    bezelGrad.addColorStop(0, '#94a3b8');
-    bezelGrad.addColorStop(0.5, '#475569');
-    bezelGrad.addColorStop(1, '#1e293b');
-  }
+  // Left Leg & Shoe
+  const leftFootX = x - footSpacing;
+  const leftFootY = y + 10 * s + legStride;
+  // Left shoe
+  ctx.fillStyle = '#0f172a';
+  roundRect(ctx, leftFootX - 2.8 * s, leftFootY, 5.6 * s, 8 * s, 2.5 * s);
+  ctx.fill();
+  // Shoe tip specular
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.fillRect(leftFootX - 1.8 * s, leftFootY + 5 * s, 3.6 * s, 1.8 * s);
+
+  // Right Leg & Shoe
+  const rightFootX = x + footSpacing;
+  const rightFootY = y + 10 * s - legStride;
+  // Right shoe
+  ctx.fillStyle = '#0f172a';
+  roundRect(ctx, rightFootX - 2.8 * s, rightFootY, 5.6 * s, 8 * s, 2.5 * s);
+  ctx.fill();
+  // Shoe tip specular
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.fillRect(rightFootX - 1.8 * s, rightFootY + 5 * s, 3.6 * s, 1.8 * s);
+
+  // 5. Executive Suit Blazer & Torso (Shoulders & Chest)
+  // Left Arm (swings opposite to left leg)
+  const leftArmSwing = -legStride * 0.7;
+  ctx.fillStyle = o.color;
+  roundRect(ctx, x - 13.5 * s, cy - 2 * s + leftArmSwing, 4.5 * s, 11 * s, 2.2 * s);
+  ctx.fill();
+  // Left hand
+  ctx.fillStyle = o.skin;
   ctx.beginPath();
-  ctx.arc(x, cy, 18 * s, 0, Math.PI * 2);
-  ctx.fillStyle = bezelGrad;
+  ctx.arc(x - 11.2 * s, cy + 10 * s + leftArmSwing, 2.2 * s, 0, Math.PI * 2);
   ctx.fill();
 
-  // Inner Core Disc
-  const innerGrad = ctx.createRadialGradient(x, cy - 4 * s, 2 * s, x, cy, 16 * s);
-  if (o.isSelf) {
-    innerGrad.addColorStop(0, '#312e81');
-    innerGrad.addColorStop(1, '#0f172a');
-  } else {
-    innerGrad.addColorStop(0, '#1e293b');
-    innerGrad.addColorStop(1, '#020617');
-  }
+  // Right Arm (swings opposite to right leg)
+  const rightArmSwing = legStride * 0.7;
+  ctx.fillStyle = o.color;
+  roundRect(ctx, x + 9 * s, cy - 2 * s + rightArmSwing, 4.5 * s, 11 * s, 2.2 * s);
+  ctx.fill();
+  // Right hand
+  ctx.fillStyle = o.skin;
   ctx.beginPath();
-  ctx.arc(x, cy, 15.5 * s, 0, Math.PI * 2);
-  ctx.fillStyle = innerGrad;
+  ctx.arc(x + 11.2 * s, cy + 10 * s + rightArmSwing, 2.2 * s, 0, Math.PI * 2);
   ctx.fill();
 
-  // Specular rim reflection
+  // Main Torso / Blazer
+  const torsoW = 19 * s;
+  const torsoH = 13 * s;
+  roundRect(ctx, x - torsoW / 2, cy - 3 * s, torsoW, torsoH, 5 * s);
+  ctx.fillStyle = o.color;
+  ctx.fill();
+
+  // Torso 3D lighting gradient
+  const torsoShade = ctx.createLinearGradient(x - torsoW / 2, cy - 3 * s, x + torsoW / 2, cy + torsoH);
+  torsoShade.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
+  torsoShade.addColorStop(0.6, 'rgba(0, 0, 0, 0)');
+  torsoShade.addColorStop(1, 'rgba(0, 0, 0, 0.28)');
+  ctx.fillStyle = torsoShade;
+  roundRect(ctx, x - torsoW / 2, cy - 3 * s, torsoW, torsoH, 5 * s);
+  ctx.fill();
+
+  // Crisp White Collar / V-Neck Lapels
   ctx.beginPath();
-  ctx.arc(x, cy - 1 * s, 14.5 * s, Math.PI * 1.15, Math.PI * 1.85);
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.moveTo(x - 4 * s, cy - 3 * s);
+  ctx.lineTo(x, cy + 4 * s);
+  ctx.lineTo(x + 4 * s, cy - 3 * s);
+  ctx.closePath();
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+
+  // Necktie or Lapel Center
+  ctx.beginPath();
+  ctx.moveTo(x - 1.2 * s, cy - 1 * s);
+  ctx.lineTo(x + 1.2 * s, cy - 1 * s);
+  ctx.lineTo(x + 0.8 * s, cy + 5 * s);
+  ctx.lineTo(x, cy + 6.5 * s);
+  ctx.lineTo(x - 0.8 * s, cy + 5 * s);
+  ctx.closePath();
+  ctx.fillStyle = o.isSelf ? '#38bdf8' : '#334155';
+  ctx.fill();
+
+  // 6. Head, Neck & 3D Volumetric Styled Hair
+  const headY = cy - 10 * s;
+
+  // Neck
+  ctx.fillStyle = o.skin;
+  ctx.fillRect(x - 2.5 * s, headY + 4 * s, 5 * s, 4 * s);
+
+  // Head / Cranium
+  ctx.beginPath();
+  ctx.arc(x, headY, 8.5 * s, 0, Math.PI * 2);
+  ctx.fillStyle = o.skin;
+  ctx.fill();
+
+  // 3D Head Shading
+  const headGrad = ctx.createRadialGradient(x - 2 * s, headY - 3 * s, 1 * s, x, headY, 9 * s);
+  headGrad.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
+  headGrad.addColorStop(0.8, 'rgba(0, 0, 0, 0)');
+  headGrad.addColorStop(1, 'rgba(0, 0, 0, 0.18)');
+  ctx.fillStyle = headGrad;
+  ctx.beginPath();
+  ctx.arc(x, headY, 8.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Facial Profile / Brow in direction of facing
+  const faceOffset = o.facing * 2.2 * s;
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
+  // Eyes / sunglasses brow
+  ctx.beginPath();
+  ctx.arc(x + faceOffset - 2.2 * s, headY + 1 * s, 1.2 * s, 0, Math.PI * 2);
+  ctx.arc(x + faceOffset + 2.2 * s, headY + 1 * s, 1.2 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 3D Volumetric Hair Cap & Tufts
+  ctx.fillStyle = o.hair;
+  ctx.beginPath();
+  // Hair base covering top and back of head
+  ctx.arc(x, headY - 1.5 * s, 8.8 * s, Math.PI * 0.85, Math.PI * 2.15);
+  ctx.fill();
+
+  // Volumetric hair side parts & front swoop
+  ctx.beginPath();
+  ctx.arc(x - 3 * s + faceOffset * 0.5, headY - 4 * s, 5.5 * s, 0, Math.PI * 2);
+  ctx.arc(x + 2 * s + faceOffset * 0.5, headY - 4.5 * s, 5 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Hair Specular Highlight
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
   ctx.lineWidth = 1.4 * s;
+  ctx.beginPath();
+  ctx.arc(x, headY - 3.5 * s, 6.5 * s, Math.PI * 1.15, Math.PI * 1.75);
   ctx.stroke();
 
-  // 6. Monogram Initials
-  const cleanName = o.name.replace(' (you)', '').trim();
-  const parts = cleanName.split(/\s+/).filter(Boolean);
-  const initials = parts.length > 1
-    ? (parts[0]![0]! + parts[1]![0]!).toUpperCase()
-    : (cleanName.slice(0, 2) || 'U').toUpperCase();
+  // 7. Directional Heading Indicator (when walking)
+  if (o.moving) {
+    const arrowX = x + o.facing * 18 * s;
+    ctx.beginPath();
+    ctx.moveTo(arrowX + o.facing * 3 * s, cy);
+    ctx.lineTo(arrowX - o.facing * 3.5 * s, cy - 4 * s);
+    ctx.lineTo(arrowX - o.facing * 3.5 * s, cy + 4 * s);
+    ctx.closePath();
+    ctx.fillStyle = o.isSelf ? '#38bdf8' : '#94a3b8';
+    ctx.fill();
+  }
 
-  ctx.font = `bold ${12 * s}px Inter, -apple-system, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(initials, x, cy);
-
-  // 7. Status Jewel Badge (concentric emerald / ruby / amber / violet jewel)
-  const dotX = x + 12 * s;
-  const dotY = cy + 12 * s;
-  // White bezel
+  // 8. Status Jewel Badge (concentric emerald / ruby / amber / violet jewel)
+  const dotX = x + 11 * s;
+  const dotY = cy + 10 * s;
   ctx.beginPath();
   ctx.arc(dotX, dotY, 4.5 * s, 0, Math.PI * 2);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
-  // Glowing status center
   ctx.beginPath();
   ctx.arc(dotX, dotY, 3.2 * s, 0, Math.PI * 2);
   ctx.fillStyle = o.statusColor;
   ctx.fill();
 
-  // 8. Floating Executive Name Badge
+  // 9. Floating Glassmorphic Name Badge
   ctx.font = `600 ${11 * s}px Inter, sans-serif`;
   const tw = ctx.measureText(o.name).width;
   const padX = 8 * s;
   const pillH = 18 * s;
   const pillW = tw + padX * 2;
   const px = x - pillW / 2;
-  const py = cy - 24 * s - pillH;
+  const py = headY - 14 * s - pillH;
 
   roundRect(ctx, px, py, pillW, pillH, 9 * s);
-  ctx.fillStyle = o.isSelf ? '#4338ca' : 'rgba(15, 23, 42, 0.92)';
+  ctx.fillStyle = o.isSelf ? '#4338ca' : 'rgba(15, 23, 42, 0.90)';
   ctx.fill();
   ctx.strokeStyle = o.isSelf ? '#6366f1' : 'rgba(255, 255, 255, 0.18)';
   ctx.lineWidth = 1;
@@ -701,6 +985,8 @@ function drawCharacter(
   ctx.fillText(o.name, x, py + pillH / 2);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
+
+  ctx.restore();
 }
 
 function drawZone(
@@ -709,6 +995,7 @@ function drawZone(
   s: number,
   lockedZoneIds: Set<string> = new Set(),
   isCampus: boolean = false,
+  rendered3D: boolean = false,
 ): void {
   // If campus layout and it's the Grand Fountain Plaza, the open courtyard is already rendered
   if (isCampus && z.name.toLowerCase().includes('fountain')) {
@@ -723,6 +1010,71 @@ function drawZone(
   const style = ZONE_STYLE[z.type] ?? ZONE_STYLE.open!;
   const isEnclosed = isCampus ? true : (z.type !== 'lounge' && z.type !== 'open');
   const isLocked = lockedZoneIds.has(z.id);
+
+  // If 3D campus backdrop is active, avoid drawing opaque floors over the 3D map!
+  if (isCampus && rendered3D) {
+    const door = getDoorwayForZone(z);
+    const dX = door.x * s;
+    const dY = door.y * s;
+    const dW = Math.max(door.w * s, 12 * s);
+    const dH = Math.max(door.h * s, 12 * s);
+
+    if (isLocked) {
+      // Semi-transparent red privacy lock overlay
+      roundRect(ctx, X, Y, W, H, 10 * s);
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.15)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.45)';
+      ctx.lineWidth = 1.5 * s;
+      ctx.stroke();
+
+      // Glowing red locked laser barrier across doorway
+      ctx.save();
+      ctx.beginPath();
+      ctx.lineWidth = 5 * s;
+      ctx.strokeStyle = '#ef4444';
+      if (door.side === 'top' || door.side === 'bottom') {
+        ctx.moveTo(dX, dY);
+        ctx.lineTo(dX + dW, dY);
+      } else {
+        ctx.moveTo(dX, dY);
+        ctx.lineTo(dX, dY + dH);
+      }
+      ctx.stroke();
+
+      // Laser glow
+      ctx.lineWidth = 10 * s;
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.35)';
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      // Welcoming soft threshold light at doorway
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      if (door.side === 'bottom') {
+        ctx.fillRect(dX, Y + H - 4 * s, dW, 6 * s);
+      } else if (door.side === 'top') {
+        ctx.fillRect(dX, Y - 2 * s, dW, 6 * s);
+      } else {
+        ctx.fillRect(dX - (door.side === 'left' ? 2 * s : 4 * s), dY, 6 * s, dH);
+      }
+    }
+
+    // Room title pill badge
+    ctx.font = `bold ${11 * s}px Inter, sans-serif`;
+    const label = isLocked ? `🔒 ${z.name} (LOCKED)` : `🔊 ${z.name}`;
+    const tw = ctx.measureText(label).width;
+    roundRect(ctx, X + 8 * s, Y + 8 * s, tw + 16 * s, 22 * s, 6 * s);
+    ctx.fillStyle = isLocked ? 'rgba(220, 38, 38, 0.92)' : 'rgba(15, 23, 42, 0.82)';
+    ctx.fill();
+    ctx.strokeStyle = isLocked ? '#ef4444' : 'rgba(255, 255, 255, 0.22)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, X + 16 * s, Y + 19 * s);
+    ctx.textBaseline = 'alphabetic';
+    return;
+  }
 
   // 1. Floor Textures
   roundRect(ctx, X, Y, W, H, 14 * s);

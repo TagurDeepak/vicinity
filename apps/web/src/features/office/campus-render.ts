@@ -1,5 +1,72 @@
 import { roundRect } from './OfficeCanvas';
 
+let campus3dImg: HTMLImageElement | null = null;
+let campus3dLoaded = false;
+
+/** Preloads the high-definition 3D isometric campus artwork */
+export function getCampus3DImage(): HTMLImageElement | null {
+  if (typeof window === 'undefined') return null;
+  if (!campus3dImg) {
+    campus3dImg = new Image();
+    campus3dImg.src = '/campus-3d.jpg';
+    campus3dImg.onload = () => {
+      campus3dLoaded = true;
+    };
+  }
+  return campus3dLoaded ? campus3dImg : null;
+}
+
+/** Draws the 3D aesthetic campus backdrop. Returns true if image rendered. */
+export function drawCampus3DBackdrop(
+  ctx: CanvasRenderingContext2D,
+  s: number,
+  h: number = 1080,
+): boolean {
+  const img = getCampus3DImage();
+  if (img) {
+    ctx.drawImage(img, 0, 0, 1600 * s, h * s);
+    return true;
+  }
+  return false;
+}
+
+/** Draws living, animated water ripples and fountain sparkle directly over the 3D plaza fountains */
+export function drawCampusFountainRipples(
+  ctx: CanvasRenderingContext2D,
+  s: number,
+  now: number,
+): void {
+  ctx.save();
+  const animTime = now * 0.001;
+  CAMPUS_FOUNTAINS.forEach((f, idx) => {
+    const fx = f.x * s;
+    const fy = f.y * s;
+    const fr = f.r * s;
+
+    const ripple1 = (animTime * 1.4 + idx * 0.75) % 1;
+    const ripple2 = (animTime * 1.4 + idx * 0.75 + 0.5) % 1;
+
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.7 * (1 - ripple1)})`;
+    ctx.lineWidth = 1.8 * s;
+    ctx.beginPath();
+    ctx.arc(fx, fy, 4 * s + ripple1 * (fr - 8 * s), 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.5 * (1 - ripple2)})`;
+    ctx.beginPath();
+    ctx.arc(fx, fy, 4 * s + ripple2 * (fr - 8 * s), 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Central nozzle water sparkle
+    const sparkle = (Math.sin(animTime * 4.5 + idx * 1.2) + 1) * 0.5;
+    ctx.fillStyle = `rgba(240, 249, 255, ${0.45 + sparkle * 0.5})`;
+    ctx.beginPath();
+    ctx.arc(fx, fy, (3 + sparkle * 2) * s, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.restore();
+}
+
 // Campus trees layout (pine conifers, deciduous oaks, and pink cherry blossoms)
 const CAMPUS_TREES = [
   // Left border trees
