@@ -234,6 +234,15 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
           >
             💬 Chat
           </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setRoomsOpen(true)}
+            title="Switch between 3D Aesthetic Campus, 2D Garden Campus, or Standard Modern Office"
+            className="border-brand-300 bg-brand-50/70 text-brand-800 hover:bg-brand-100 font-semibold"
+          >
+            🎨 Layouts
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => setRoomsOpen(true)}>
             🏢 Rooms
           </Button>
@@ -385,7 +394,10 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
         isOpen={roomsOpen}
         onClose={() => setRoomsOpen(false)}
         zones={zones.data ?? []}
-        onZonesUpdated={() => void zones.refetch()}
+        onZonesUpdated={() => {
+          void zones.refetch();
+          void workspace.refetch();
+        }}
       />
 
       <KnockNotification

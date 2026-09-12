@@ -151,9 +151,10 @@ export const CAMPUS_GARDEN_ZONES = [
 export async function createWorkspace(
   ownerId: string,
   name: string,
-  preset: 'standard' | 'campus-garden' = 'standard',
+  preset: 'standard' | 'campus-garden' | 'campus-3d' = 'standard',
 ) {
-  const targetZones = preset === 'campus-garden' ? CAMPUS_GARDEN_ZONES : DEFAULT_OFFICE_ZONES;
+  const targetZones =
+    preset === 'campus-garden' || preset === 'campus-3d' ? CAMPUS_GARDEN_ZONES : DEFAULT_OFFICE_ZONES;
   return prisma.$transaction(async (tx) => {
     const workspace = await tx.workspace.create({
       data: { name, slug: slugify(name), ownerId, layout: { theme: preset } },
@@ -182,9 +183,10 @@ export async function createWorkspace(
 /** Clears and populates the requested office layout preset on an existing workspace. */
 export async function seedDefaultZones(
   workspaceId: string,
-  preset: 'standard' | 'campus-garden' = 'standard',
+  preset: 'standard' | 'campus-garden' | 'campus-3d' = 'standard',
 ) {
-  const targetZones = preset === 'campus-garden' ? CAMPUS_GARDEN_ZONES : DEFAULT_OFFICE_ZONES;
+  const targetZones =
+    preset === 'campus-garden' || preset === 'campus-3d' ? CAMPUS_GARDEN_ZONES : DEFAULT_OFFICE_ZONES;
   return prisma.$transaction(async (tx) => {
     await tx.zone.deleteMany({ where: { workspaceId } });
     for (const z of targetZones) {

@@ -28,7 +28,7 @@ export interface WorkspaceDetail {
   name: string;
   slug: string;
   ownerId: string;
-  layout?: { theme?: 'standard' | 'campus-garden'; [key: string]: unknown };
+  layout?: { theme?: 'standard' | 'campus-garden' | 'campus-3d'; [key: string]: unknown };
   createdAt: string;
 }
 
@@ -46,7 +46,7 @@ export function listZones(workspaceId: string): Promise<Zone[]> {
 
 export function applyPresetZones(
   workspaceId: string,
-  preset: 'standard' | 'campus-garden' = 'standard',
+  preset: 'standard' | 'campus-garden' | 'campus-3d' = 'standard',
 ): Promise<Zone[]> {
   return apiFetch(`/workspaces/${workspaceId}/zones/preset`, {
     method: 'POST',

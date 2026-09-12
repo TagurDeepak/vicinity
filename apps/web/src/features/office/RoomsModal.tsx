@@ -32,7 +32,7 @@ export function RoomsModal({
 
   if (!isOpen) return null;
 
-  async function handleApplyPreset(preset: 'standard' | 'campus-garden') {
+  async function handleApplyPreset(preset: 'standard' | 'campus-garden' | 'campus-3d') {
     setError(null);
     setLoading(true);
     try {
@@ -160,19 +160,72 @@ export function RoomsModal({
           {/* TAB 1: PRESETS */}
           {tab === 'preset' && (
             <div className="space-y-4">
-              {/* CHOICE 1: GARDEN CAMPUS & GRAND PLAZA */}
+              {/* CHOICE 1: 3D AESTHETIC CAMPUS */}
+              <div className="rounded-2xl border border-sky-300 bg-sky-50/50 p-4 space-y-3 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-sky-950 flex items-center gap-1.5">
+                      <span>🖼️</span> 3D Aesthetic Campus (13 Zones)
+                    </h3>
+                    <p className="mt-1 text-xs text-sky-900/80">
+                      High-definition 3D isometric campus layout with pre-rendered architecture, living water ripples, pool floats, and interactive doors:
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-sky-600/15 px-2.5 py-1 text-[11px] font-bold text-sky-800">
+                    3D Isometric
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs text-ink-700 pt-1">
+                  <div className="flex items-center gap-1.5">
+                    <span>⛲</span>
+                    <span>3D Grand Fountain Plaza</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>🌊</span>
+                    <span>Animated Living Water</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>💻</span>
+                    <span>4 Coworking Suites</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>📊</span>
+                    <span>4 Meeting Rooms (Isolated)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>🔒</span>
+                    <span>4 Focus Pods (Lockable)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>🚪</span>
+                    <span>Interactive Security Doors</span>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() => handleApplyPreset('campus-3d')}
+                  disabled={loading}
+                  className="w-full mt-2 bg-sky-600 hover:bg-sky-700 text-white border-none shadow"
+                  size="md"
+                >
+                  {loading ? 'Applying Layout…' : '🖼️ Apply 3D Aesthetic Campus Layout'}
+                </Button>
+              </div>
+
+              {/* CHOICE 2: 2D GARDEN CAMPUS & GRAND PLAZA */}
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="text-sm font-semibold text-emerald-950 flex items-center gap-1.5">
-                      <span>🌿</span> Garden Campus & Grand Plaza (13 Zones)
+                      <span>🌿</span> 2D Garden Campus & Grand Plaza (13 Zones)
                     </h3>
                     <p className="mt-1 text-xs text-emerald-900/80">
-                      Kumospace-style outdoor park campus featuring a central 4-fountain plaza, plush sofas, garden picnic lawns, and 4 room quadrants:
+                      Original procedural lush park campus with cherry blossom trees, brick pathways, lawns, and outdoor dining gardens:
                     </p>
                   </div>
                   <span className="rounded-full bg-emerald-600/15 px-2.5 py-1 text-[11px] font-bold text-emerald-800">
-                    New Layout
+                    2D Vector
                   </span>
                 </div>
 
@@ -199,21 +252,21 @@ export function RoomsModal({
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span>🦩</span>
-                    <span>Picnic Lawns, Floats & Puppy</span>
+                    <span>Picnic Lawns & Floats</span>
                   </div>
                 </div>
 
                 <Button
                   onClick={() => handleApplyPreset('campus-garden')}
                   disabled={loading}
-                  className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white border-none"
+                  className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white border-none shadow"
                   size="md"
                 >
-                  {loading ? 'Applying Layout…' : '🌿 Apply Garden Campus Layout to Floor'}
+                  {loading ? 'Applying Layout…' : '🌿 Apply 2D Garden Campus Layout'}
                 </Button>
               </div>
 
-              {/* CHOICE 2: STANDARD MODERN OFFICE */}
+              {/* CHOICE 3: STANDARD MODERN OFFICE */}
               <div className="rounded-2xl border border-brand-200 bg-brand-50/40 p-4 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -262,7 +315,7 @@ export function RoomsModal({
                   className="w-full mt-2"
                   size="md"
                 >
-                  {loading ? 'Applying Layout…' : '🏢 Apply Modern Office Layout to Floor'}
+                  {loading ? 'Applying Layout…' : '🏢 Apply Modern Office Layout'}
                 </Button>
               </div>
             </div>

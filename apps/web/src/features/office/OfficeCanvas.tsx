@@ -5,11 +5,13 @@ import {
   FLOOR_HEIGHT,
   FLOOR_WIDTH,
   PROXIMITY_RADIUS,
+  UserStatus,
   type PresenceState,
   type Vec2,
   type Zone,
 } from '@vicinity/shared';
 import { Avatar } from '@vicinity/ui';
+import { useAuthStore } from '@/stores/auth';
 import { usePresenceStore } from '@/stores/presence';
 import { findPath, getDoorwayForZone, resolveMovement } from './collision';
 import {
@@ -106,7 +108,7 @@ export function OfficeCanvas({
   onStartDm,
 }: {
   zones: Zone[];
-  layoutTheme?: 'standard' | 'campus-garden';
+  layoutTheme?: 'standard' | 'campus-garden' | 'campus-3d';
   lockedZoneIds?: Set<string>;
   walkToTarget?: Vec2 | null;
   onMove: (p: Vec2) => void;
@@ -117,11 +119,28 @@ export function OfficeCanvas({
 }) {
   const isCampus =
     layoutTheme === 'campus-garden' ||
+    layoutTheme === 'campus-3d' ||
     zones.some(
       (z) =>
         z.name.toLowerCase().includes('fountain') ||
         z.name.toLowerCase().includes('coworking'),
     );
+
+  // User can toggle between 3D aesthetic view and original 2D garden view on demand
+  const [campusViewMode, setCampusViewMode] = useState<'3d' | '2d'>(
+    layoutTheme === 'campus-garden' ? '2d' : '3d',
+  );
+  const campusViewModeRef = useRef(campusViewMode);
+  campusViewModeRef.current = campusViewMode;
+
+  useEffect(() => {
+    if (layoutTheme === 'campus-garden') {
+      setCampusViewMode('2d');
+    } else if (layoutTheme === 'campus-3d') {
+      setCampusViewMode('3d');
+    }
+  }, [layoutTheme]);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({
@@ -340,11 +359,16 @@ export function OfficeCanvas({
 
       let rendered3D = false;
       if (isCampus) {
-        rendered3D = drawCampus3DBackdrop(ctx, s, floorH);
+        if (campusViewModeRef.current === '3d') {
+          rendered3D = drawCampus3DBackdrop(ctx, s, floorH);
+        }
         if (!rendered3D) {
+          // Render the full original 2D lush green campus with lawns, trees, cherry blossoms, and lamps
           drawCampusGrass(ctx, floorW * s, floorH * s, s);
           drawCampusWalkways(ctx, s);
           drawCampusOutdoorGardens(ctx, s);
+          drawCampusTrees(ctx, s);
+          drawCampusStreetLamps(ctx, s);
         }
         if (rendered3D) {
           drawCampusFountainRipples(ctx, s, now);
@@ -377,11 +401,6 @@ export function OfficeCanvas({
       // Rooms + furniture with architectural walls & textures
       for (const z of zones) drawZone(ctx, z, s, lockedZoneIdsRef.current, isCampus, rendered3D);
 
-      if (isCampus && !rendered3D) {
-        drawCampusTrees(ctx, s);
-        drawCampusStreetLamps(ctx, s);
-      }
-
       // Auto-path waypoint visualization
       if (pathWaypoints.current.length > 0) {
         ctx.save();
@@ -409,45 +428,81 @@ export function OfficeCanvas({
 
       const groupSet = new Set(group?.members ?? []);
 
-      // Proximity ring around me
-      if (me && users[me]) {
-        const m = users[me]!;
-        const cx = m.position.x * s;
-        const cy = m.position.y * s;
+      // Ensure local player avatar is ALWAYS present and rendered at 60fps from pos.current
+      const authUser = useAuthStore.getState().user;
+      const localUserId = me || authUser?.id || 'local-user';
+      const localDisplayName =
+        (me && users[me]?.displayName) ||
+        authUser?.displayName ||
+        'You';
+      const localStatus = (me && users[me]?.status) || UserStatus.Available;
+
+      const allUsersMap: Record<string, PresenceState> = { ...users };
+      if (!allUsersMap[localUserId]) {
+        allUsersMap[localUserId] = {
+          userId: localUserId,
+          displayName: localDisplayName,
+          avatarUrl: authUser?.avatarUrl ?? null,
+          position: { x: pos.current.x, y: pos.current.y },
+          status: localStatus,
+          zoneId: currentZoneRef.current?.id ?? null,
+        };
+      }
+
+      const roster = Object.values(allUsersMap).map((u) => {
+        if (u.userId === localUserId) {
+          return { ...u, position: { x: pos.current.x, y: pos.current.y } };
+        }
+        return u;
+      }).sort((a, b) => a.position.y - b.position.y);
+
+      // Proximity ring around me (uses real-time pos.current)
+      {
+        const cx = pos.current.x * s;
+        const cy = pos.current.y * s;
         ctx.beginPath();
         ctx.arc(cx, cy, PROXIMITY_RADIUS * s, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(95,92,240,0.05)';
+        ctx.fillStyle = 'rgba(95,92,240,0.06)';
         ctx.fill();
         ctx.setLineDash([6 * s, 6 * s]);
-        ctx.strokeStyle = 'rgba(95,92,240,0.35)';
+        ctx.strokeStyle = 'rgba(95,92,240,0.40)';
         ctx.lineWidth = 1.5 * s;
         ctx.stroke();
         ctx.setLineDash([]);
       }
 
       // Avatars — painter's order by y so nearer ones overlap correctly
-      const roster = Object.values(users).sort((a, b) => a.position.y - b.position.y);
       for (const u of roster) {
-        const x = u.position.x * s;
-        const y = u.position.y * s;
-        const prev = anim.current.get(u.userId);
-        const dxu = prev ? u.position.x - prev.x : 0;
-        const moved = prev ? Math.hypot(dxu, u.position.y - prev.y) : 0;
-        const moving = moved > 0.4;
-        const facing = dxu > 0.4 ? 1 : dxu < -0.4 ? -1 : (prev?.facing ?? 1);
-        const phase = moving ? (prev?.phase ?? 0) + dt * 9 : 0;
-        anim.current.set(u.userId, { x: u.position.x, y: u.position.y, facing, phase });
+        const isSelf = u.userId === localUserId;
+        const worldX = isSelf ? pos.current.x : u.position.x;
+        const worldY = isSelf ? pos.current.y : u.position.y;
+        const x = worldX * s;
+        const y = worldY * s;
 
+        const prev = anim.current.get(u.userId);
+        const dxu = prev ? worldX - prev.x : 0;
+        const dyu = prev ? worldY - prev.y : 0;
+        const distMoved = Math.hypot(dxu, dyu);
+
+        // Self is moving if keys are pressed, pathing, or pos changed
+        const moving = isSelf
+          ? keys.current.size > 0 || pathWaypoints.current.length > 0 || distMoved > 0.15
+          : distMoved > 0.4;
+        const facing = dxu > 0.15 ? 1 : dxu < -0.15 ? -1 : (prev?.facing ?? 1);
+        const phase = moving ? (prev?.phase ?? 0) + dt * 10 : 0;
+        anim.current.set(u.userId, { x: worldX, y: worldY, facing, phase });
+
+        const safeName = u.displayName || 'You';
         drawCharacter(ctx, x, y, s, {
-          color: shirtFor(u.displayName),
-          hair: hairFor(u.displayName),
-          skin: skinFor(u.displayName),
-          name: u.displayName + (u.userId === me ? ' (you)' : ''),
+          color: shirtFor(safeName),
+          hair: hairFor(safeName),
+          skin: skinFor(safeName),
+          name: safeName + (isSelf ? ' (you)' : ''),
           facing,
           moving,
           phase,
           talking: groupSet.has(u.userId),
-          isSelf: u.userId === me,
+          isSelf,
           statusColor: STATUS_COLOR[u.status] ?? '#8b93a7',
           t: now,
           isSelected: selectedUser?.userId === u.userId,
@@ -461,7 +516,7 @@ export function OfficeCanvas({
 
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [containerSize, zones, onMove, selectedUser, zoom, cameraOffset]);
+  }, [containerSize, zones, onMove, selectedUser, zoom, cameraOffset, campusViewMode]);
 
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
 
@@ -646,6 +701,33 @@ export function OfficeCanvas({
         >
           +
         </button>
+
+        {isCampus && (
+          <div className="ml-1 flex items-center rounded-xl bg-slate-800/80 p-0.5 border border-white/10">
+            <button
+              onClick={() => setCampusViewMode('3d')}
+              className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                campusViewMode === '3d'
+                  ? 'bg-sky-500 text-white shadow-sm'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+              title="Switch to 3D Isometric View"
+            >
+              <span>🖼️ 3D</span>
+            </button>
+            <button
+              onClick={() => setCampusViewMode('2d')}
+              className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                campusViewMode === '2d'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+              title="Switch to 2D Garden View"
+            >
+              <span>🌿 2D</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Wave notification toast */}
@@ -762,221 +844,259 @@ function drawCharacter(
   ctx.save();
 
   // Vertical bobbing when walking
-  const bob = o.moving ? Math.abs(Math.sin(o.phase * 1.2)) * 2.2 * s : 0;
+  const bob = o.moving ? Math.abs(Math.sin(o.phase * 1.3)) * 3 * s : 0;
   const cy = y - bob;
 
-  // 1. Multilayer Ground Ambient Shadow (Contact shadow under human)
+  // 1. Ground Locator Halo Ring for Local User (Guarantees user immediately spots their character)
+  if (o.isSelf) {
+    ctx.save();
+    // Inner bright electric-cyan ground ring
+    ctx.beginPath();
+    ctx.ellipse(x, y + 15 * s, 22 * s, 8.5 * s, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2.5 * s;
+    ctx.shadowColor = '#00f0ff';
+    ctx.shadowBlur = 10 * s;
+    ctx.stroke();
+
+    // Outer pulsating radar wave ring
+    const waveProgress = (o.t / 950) % 1;
+    ctx.beginPath();
+    ctx.ellipse(
+      x,
+      y + 15 * s,
+      (22 + waveProgress * 18) * s,
+      (8.5 + waveProgress * 7) * s,
+      0,
+      0,
+      Math.PI * 2,
+    );
+    ctx.strokeStyle = `rgba(56, 189, 248, ${0.75 * (1 - waveProgress)})`;
+    ctx.lineWidth = 1.8 * s;
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 2. Multilayer Ground Ambient Shadow (Soft contact shadow under character)
   ctx.beginPath();
-  const shadowW = (16 + (o.moving ? Math.sin(o.phase) * 1.5 : 0)) * s;
-  ctx.ellipse(x, y + 14 * s, shadowW, 6 * s, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.28)';
+  const shadowW = (22 + (o.moving ? Math.sin(o.phase) * 2 : 0)) * s;
+  ctx.ellipse(x, y + 15 * s, shadowW, 7.5 * s, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.32)';
   ctx.fill();
 
-  // 2. Speaking Audio Halo Waves
+  // 3. Speaking Audio Halo Waves
   if (o.talking) {
     const pulsePhase = (o.t / 140) % 1;
-    const r1 = (22 + pulsePhase * 16) * s;
-    const a1 = (1 - pulsePhase) * 0.55;
+    const r1 = (28 + pulsePhase * 20) * s;
+    const a1 = (1 - pulsePhase) * 0.6;
     ctx.beginPath();
     ctx.arc(x, cy, r1, 0, Math.PI * 2);
     ctx.strokeStyle = `rgba(99, 102, 241, ${a1})`;
-    ctx.lineWidth = 2.2 * s;
+    ctx.lineWidth = 2.5 * s;
     ctx.stroke();
 
     const pulsePhase2 = (o.t / 140 + 0.5) % 1;
-    const r2 = (22 + pulsePhase2 * 16) * s;
-    const a2 = (1 - pulsePhase2) * 0.45;
+    const r2 = (28 + pulsePhase2 * 20) * s;
+    const a2 = (1 - pulsePhase2) * 0.5;
     ctx.beginPath();
     ctx.arc(x, cy, r2, 0, Math.PI * 2);
     ctx.strokeStyle = `rgba(56, 189, 248, ${a2})`;
-    ctx.lineWidth = 1.6 * s;
+    ctx.lineWidth = 1.8 * s;
     ctx.stroke();
   }
 
-  // 3. Selection Highlight Ring
+  // 4. Selection Highlight Ring
   if (o.isSelected) {
     ctx.beginPath();
-    ctx.arc(x, cy, 24 * s, 0, Math.PI * 2);
+    ctx.arc(x, cy, 28 * s, 0, Math.PI * 2);
     ctx.strokeStyle = '#38bdf8';
     ctx.lineWidth = 2.5 * s;
     ctx.stroke();
   }
 
-  // 4. Stepping Legs & Shoes (Walking animation)
-  const legStride = o.moving ? Math.sin(o.phase) * 6 * s : 0;
-  const footSpacing = 4.5 * s;
+  // 5. Stepping Legs & Shoes (Walking animation)
+  const legStride = o.moving ? Math.sin(o.phase) * 8 * s : 0;
+  const footSpacing = 6 * s;
 
   // Left Leg & Shoe
   const leftFootX = x - footSpacing;
-  const leftFootY = y + 10 * s + legStride;
-  // Left shoe
-  ctx.fillStyle = '#0f172a';
-  roundRect(ctx, leftFootX - 2.8 * s, leftFootY, 5.6 * s, 8 * s, 2.5 * s);
+  const leftFootY = cy + 12 * s + legStride;
+  // Left trouser leg
+  ctx.fillStyle = '#1e293b';
+  roundRect(ctx, leftFootX - 3.2 * s, cy + 4 * s + legStride * 0.4, 6.4 * s, 12 * s, 2.5 * s);
   ctx.fill();
-  // Shoe tip specular
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-  ctx.fillRect(leftFootX - 1.8 * s, leftFootY + 5 * s, 3.6 * s, 1.8 * s);
+  // Left shoe body
+  ctx.fillStyle = '#0f172a';
+  roundRect(ctx, leftFootX - 3.6 * s, leftFootY + 2 * s, 7.2 * s, 10 * s, 3 * s);
+  ctx.fill();
+  // Left shoe sole trim (crisp white sneaker / dress shoe rim)
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(leftFootX - 3.6 * s, leftFootY + 9 * s, 7.2 * s, 2.5 * s);
 
   // Right Leg & Shoe
   const rightFootX = x + footSpacing;
-  const rightFootY = y + 10 * s - legStride;
-  // Right shoe
-  ctx.fillStyle = '#0f172a';
-  roundRect(ctx, rightFootX - 2.8 * s, rightFootY, 5.6 * s, 8 * s, 2.5 * s);
+  const rightFootY = cy + 12 * s - legStride;
+  // Right trouser leg
+  ctx.fillStyle = '#1e293b';
+  roundRect(ctx, rightFootX - 3.2 * s, cy + 4 * s - legStride * 0.4, 6.4 * s, 12 * s, 2.5 * s);
   ctx.fill();
-  // Shoe tip specular
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-  ctx.fillRect(rightFootX - 1.8 * s, rightFootY + 5 * s, 3.6 * s, 1.8 * s);
+  // Right shoe body
+  ctx.fillStyle = '#0f172a';
+  roundRect(ctx, rightFootX - 3.6 * s, rightFootY + 2 * s, 7.2 * s, 10 * s, 3 * s);
+  ctx.fill();
+  // Right shoe sole trim
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(rightFootX - 3.6 * s, rightFootY + 9 * s, 7.2 * s, 2.5 * s);
 
-  // 5. Executive Suit Blazer & Torso (Shoulders & Chest)
-  // Left Arm (swings opposite to left leg)
-  const leftArmSwing = -legStride * 0.7;
+  // 6. Arms & Hands (swinging opposite to leg stride)
+  const armSwing = -legStride * 0.75;
+
+  // Left Arm
   ctx.fillStyle = o.color;
-  roundRect(ctx, x - 13.5 * s, cy - 2 * s + leftArmSwing, 4.5 * s, 11 * s, 2.2 * s);
+  roundRect(ctx, x - 17.5 * s, cy - 4 * s + armSwing, 5.5 * s, 14 * s, 2.6 * s);
   ctx.fill();
   // Left hand
   ctx.fillStyle = o.skin;
   ctx.beginPath();
-  ctx.arc(x - 11.2 * s, cy + 10 * s + leftArmSwing, 2.2 * s, 0, Math.PI * 2);
+  ctx.arc(x - 14.8 * s, cy + 12 * s + armSwing, 2.8 * s, 0, Math.PI * 2);
   ctx.fill();
 
-  // Right Arm (swings opposite to right leg)
-  const rightArmSwing = legStride * 0.7;
+  // Right Arm
   ctx.fillStyle = o.color;
-  roundRect(ctx, x + 9 * s, cy - 2 * s + rightArmSwing, 4.5 * s, 11 * s, 2.2 * s);
+  roundRect(ctx, x + 12 * s, cy - 4 * s - armSwing, 5.5 * s, 14 * s, 2.6 * s);
   ctx.fill();
   // Right hand
   ctx.fillStyle = o.skin;
   ctx.beginPath();
-  ctx.arc(x + 11.2 * s, cy + 10 * s + rightArmSwing, 2.2 * s, 0, Math.PI * 2);
+  ctx.arc(x + 14.8 * s, cy + 12 * s - armSwing, 2.8 * s, 0, Math.PI * 2);
   ctx.fill();
 
-  // Main Torso / Blazer
-  const torsoW = 19 * s;
-  const torsoH = 13 * s;
-  roundRect(ctx, x - torsoW / 2, cy - 3 * s, torsoW, torsoH, 5 * s);
+  // 7. Main Torso / Tailored Suit Blazer
+  const torsoW = 24 * s;
+  const torsoH = 17 * s;
+  roundRect(ctx, x - torsoW / 2, cy - 5 * s, torsoW, torsoH, 6 * s);
   ctx.fillStyle = o.color;
   ctx.fill();
 
-  // Torso 3D lighting gradient
-  const torsoShade = ctx.createLinearGradient(x - torsoW / 2, cy - 3 * s, x + torsoW / 2, cy + torsoH);
-  torsoShade.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
-  torsoShade.addColorStop(0.6, 'rgba(0, 0, 0, 0)');
-  torsoShade.addColorStop(1, 'rgba(0, 0, 0, 0.28)');
+  // 3D Torso lighting gradient
+  const torsoShade = ctx.createLinearGradient(x - torsoW / 2, cy - 5 * s, x + torsoW / 2, cy + torsoH);
+  torsoShade.addColorStop(0, 'rgba(255, 255, 255, 0.24)');
+  torsoShade.addColorStop(0.5, 'rgba(0, 0, 0, 0)');
+  torsoShade.addColorStop(1, 'rgba(0, 0, 0, 0.32)');
   ctx.fillStyle = torsoShade;
-  roundRect(ctx, x - torsoW / 2, cy - 3 * s, torsoW, torsoH, 5 * s);
+  roundRect(ctx, x - torsoW / 2, cy - 5 * s, torsoW, torsoH, 6 * s);
   ctx.fill();
 
-  // Crisp White Collar / V-Neck Lapels
+  // Crisp White Collar / Shirt V-Neck
   ctx.beginPath();
-  ctx.moveTo(x - 4 * s, cy - 3 * s);
+  ctx.moveTo(x - 5 * s, cy - 5 * s);
   ctx.lineTo(x, cy + 4 * s);
-  ctx.lineTo(x + 4 * s, cy - 3 * s);
+  ctx.lineTo(x + 5 * s, cy - 5 * s);
   ctx.closePath();
   ctx.fillStyle = '#ffffff';
   ctx.fill();
 
-  // Necktie or Lapel Center
+  // Tie / Lapel Center
   ctx.beginPath();
-  ctx.moveTo(x - 1.2 * s, cy - 1 * s);
-  ctx.lineTo(x + 1.2 * s, cy - 1 * s);
-  ctx.lineTo(x + 0.8 * s, cy + 5 * s);
-  ctx.lineTo(x, cy + 6.5 * s);
-  ctx.lineTo(x - 0.8 * s, cy + 5 * s);
+  ctx.moveTo(x - 1.5 * s, cy - 2 * s);
+  ctx.lineTo(x + 1.5 * s, cy - 2 * s);
+  ctx.lineTo(x + 1 * s, cy + 6 * s);
+  ctx.lineTo(x, cy + 8 * s);
+  ctx.lineTo(x - 1 * s, cy + 6 * s);
   ctx.closePath();
-  ctx.fillStyle = o.isSelf ? '#38bdf8' : '#334155';
+  ctx.fillStyle = o.isSelf ? '#38bdf8' : '#e11d48';
   ctx.fill();
 
-  // 6. Head, Neck & 3D Volumetric Styled Hair
-  const headY = cy - 10 * s;
+  // 8. Head, Neck & 3D Volumetric Styled Hair
+  const headY = cy - 14 * s;
 
   // Neck
   ctx.fillStyle = o.skin;
-  ctx.fillRect(x - 2.5 * s, headY + 4 * s, 5 * s, 4 * s);
+  ctx.fillRect(x - 3.5 * s, headY + 5 * s, 7 * s, 6 * s);
 
   // Head / Cranium
   ctx.beginPath();
-  ctx.arc(x, headY, 8.5 * s, 0, Math.PI * 2);
+  ctx.arc(x, headY, 11 * s, 0, Math.PI * 2);
   ctx.fillStyle = o.skin;
   ctx.fill();
 
-  // 3D Head Shading
-  const headGrad = ctx.createRadialGradient(x - 2 * s, headY - 3 * s, 1 * s, x, headY, 9 * s);
-  headGrad.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
-  headGrad.addColorStop(0.8, 'rgba(0, 0, 0, 0)');
-  headGrad.addColorStop(1, 'rgba(0, 0, 0, 0.18)');
+  // 3D Head shading
+  const headGrad = ctx.createRadialGradient(x - 3 * s, headY - 4 * s, 1.5 * s, x, headY, 11.5 * s);
+  headGrad.addColorStop(0, 'rgba(255, 255, 255, 0.28)');
+  headGrad.addColorStop(0.75, 'rgba(0, 0, 0, 0)');
+  headGrad.addColorStop(1, 'rgba(0, 0, 0, 0.22)');
   ctx.fillStyle = headGrad;
   ctx.beginPath();
-  ctx.arc(x, headY, 8.5 * s, 0, Math.PI * 2);
+  ctx.arc(x, headY, 11 * s, 0, Math.PI * 2);
   ctx.fill();
 
   // Facial Profile / Brow in direction of facing
-  const faceOffset = o.facing * 2.2 * s;
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
-  // Eyes / sunglasses brow
+  const faceOffset = o.facing * 3 * s;
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
   ctx.beginPath();
-  ctx.arc(x + faceOffset - 2.2 * s, headY + 1 * s, 1.2 * s, 0, Math.PI * 2);
-  ctx.arc(x + faceOffset + 2.2 * s, headY + 1 * s, 1.2 * s, 0, Math.PI * 2);
+  ctx.arc(x + faceOffset - 3 * s, headY + 1 * s, 1.5 * s, 0, Math.PI * 2);
+  ctx.arc(x + faceOffset + 3 * s, headY + 1 * s, 1.5 * s, 0, Math.PI * 2);
   ctx.fill();
 
   // 3D Volumetric Hair Cap & Tufts
   ctx.fillStyle = o.hair;
   ctx.beginPath();
-  // Hair base covering top and back of head
-  ctx.arc(x, headY - 1.5 * s, 8.8 * s, Math.PI * 0.85, Math.PI * 2.15);
+  // Hair base
+  ctx.arc(x, headY - 2 * s, 11.5 * s, Math.PI * 0.82, Math.PI * 2.18);
   ctx.fill();
 
   // Volumetric hair side parts & front swoop
   ctx.beginPath();
-  ctx.arc(x - 3 * s + faceOffset * 0.5, headY - 4 * s, 5.5 * s, 0, Math.PI * 2);
-  ctx.arc(x + 2 * s + faceOffset * 0.5, headY - 4.5 * s, 5 * s, 0, Math.PI * 2);
+  ctx.arc(x - 4 * s + faceOffset * 0.6, headY - 5 * s, 7 * s, 0, Math.PI * 2);
+  ctx.arc(x + 3 * s + faceOffset * 0.6, headY - 5.5 * s, 6.5 * s, 0, Math.PI * 2);
   ctx.fill();
 
   // Hair Specular Highlight
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
-  ctx.lineWidth = 1.4 * s;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.32)';
+  ctx.lineWidth = 1.8 * s;
   ctx.beginPath();
-  ctx.arc(x, headY - 3.5 * s, 6.5 * s, Math.PI * 1.15, Math.PI * 1.75);
+  ctx.arc(x, headY - 4.5 * s, 8.5 * s, Math.PI * 1.15, Math.PI * 1.75);
   ctx.stroke();
 
-  // 7. Directional Heading Indicator (when walking)
+  // 9. Directional Heading Indicator (when walking)
   if (o.moving) {
-    const arrowX = x + o.facing * 18 * s;
+    const arrowX = x + o.facing * 22 * s;
     ctx.beginPath();
-    ctx.moveTo(arrowX + o.facing * 3 * s, cy);
-    ctx.lineTo(arrowX - o.facing * 3.5 * s, cy - 4 * s);
-    ctx.lineTo(arrowX - o.facing * 3.5 * s, cy + 4 * s);
+    ctx.moveTo(arrowX + o.facing * 4 * s, cy);
+    ctx.lineTo(arrowX - o.facing * 4.5 * s, cy - 5 * s);
+    ctx.lineTo(arrowX - o.facing * 4.5 * s, cy + 5 * s);
     ctx.closePath();
     ctx.fillStyle = o.isSelf ? '#38bdf8' : '#94a3b8';
     ctx.fill();
   }
 
-  // 8. Status Jewel Badge (concentric emerald / ruby / amber / violet jewel)
-  const dotX = x + 11 * s;
-  const dotY = cy + 10 * s;
+  // 10. Status Jewel Badge (concentric emerald / ruby / amber / violet jewel)
+  const dotX = x + 13 * s;
+  const dotY = cy + 12 * s;
   ctx.beginPath();
-  ctx.arc(dotX, dotY, 4.5 * s, 0, Math.PI * 2);
+  ctx.arc(dotX, dotY, 5 * s, 0, Math.PI * 2);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(dotX, dotY, 3.2 * s, 0, Math.PI * 2);
+  ctx.arc(dotX, dotY, 3.6 * s, 0, Math.PI * 2);
   ctx.fillStyle = o.statusColor;
   ctx.fill();
 
-  // 9. Floating Glassmorphic Name Badge
+  // 11. Floating Glassmorphic Name Badge
   ctx.font = `600 ${11 * s}px Inter, sans-serif`;
   const tw = ctx.measureText(o.name).width;
-  const padX = 8 * s;
-  const pillH = 18 * s;
+  const padX = 9 * s;
+  const pillH = 20 * s;
   const pillW = tw + padX * 2;
   const px = x - pillW / 2;
-  const py = headY - 14 * s - pillH;
+  const py = headY - 16 * s - pillH;
 
-  roundRect(ctx, px, py, pillW, pillH, 9 * s);
-  ctx.fillStyle = o.isSelf ? '#4338ca' : 'rgba(15, 23, 42, 0.90)';
+  roundRect(ctx, px, py, pillW, pillH, 10 * s);
+  ctx.fillStyle = o.isSelf ? '#1e1b4b' : 'rgba(15, 23, 42, 0.90)';
   ctx.fill();
-  ctx.strokeStyle = o.isSelf ? '#6366f1' : 'rgba(255, 255, 255, 0.18)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = o.isSelf ? '#38bdf8' : 'rgba(255, 255, 255, 0.20)';
+  ctx.lineWidth = o.isSelf ? 1.5 : 1;
   ctx.stroke();
 
   ctx.fillStyle = '#ffffff';

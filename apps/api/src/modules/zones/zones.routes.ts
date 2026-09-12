@@ -47,7 +47,7 @@ zonesRouter.post(
 );
 
 const presetSchema = z.object({
-  preset: z.enum(['standard', 'campus-garden']).optional(),
+  preset: z.enum(['standard', 'campus-garden', 'campus-3d']).optional(),
 });
 
 zonesRouter.post(
