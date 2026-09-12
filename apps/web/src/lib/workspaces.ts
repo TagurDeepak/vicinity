@@ -28,6 +28,7 @@ export interface WorkspaceDetail {
   name: string;
   slug: string;
   ownerId: string;
+  layout?: { theme?: 'standard' | 'campus-garden'; [key: string]: unknown };
   createdAt: string;
 }
 
@@ -43,8 +44,14 @@ export function listZones(workspaceId: string): Promise<Zone[]> {
   return apiFetch(`/workspaces/${workspaceId}/zones`);
 }
 
-export function applyPresetZones(workspaceId: string): Promise<Zone[]> {
-  return apiFetch(`/workspaces/${workspaceId}/zones/preset`, { method: 'POST' });
+export function applyPresetZones(
+  workspaceId: string,
+  preset: 'standard' | 'campus-garden' = 'standard',
+): Promise<Zone[]> {
+  return apiFetch(`/workspaces/${workspaceId}/zones/preset`, {
+    method: 'POST',
+    body: JSON.stringify({ preset }),
+  });
 }
 
 export function createZone(

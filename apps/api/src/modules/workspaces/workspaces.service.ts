@@ -66,11 +66,97 @@ export const DEFAULT_OFFICE_ZONES = [
   },
 ];
 
+export const CAMPUS_GARDEN_ZONES = [
+  {
+    name: 'Grand Fountain Plaza',
+    type: 'open' as const,
+    geometry: { x: 590, y: 375, w: 420, h: 350 },
+    audioIsolated: false,
+  },
+  {
+    name: 'Coworking North-West',
+    type: 'open' as const,
+    geometry: { x: 140, y: 40, w: 380, h: 260 },
+    audioIsolated: false,
+  },
+  {
+    name: 'Focus Pod NW',
+    type: 'focus' as const,
+    geometry: { x: 540, y: 110, w: 130, h: 150 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Meeting Room Alpha',
+    type: 'meeting' as const,
+    geometry: { x: 140, y: 340, w: 260, h: 180 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Coworking North-East',
+    type: 'open' as const,
+    geometry: { x: 1080, y: 40, w: 380, h: 260 },
+    audioIsolated: false,
+  },
+  {
+    name: 'Focus Pod NE',
+    type: 'focus' as const,
+    geometry: { x: 930, y: 110, w: 130, h: 150 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Meeting Room Beta',
+    type: 'meeting' as const,
+    geometry: { x: 1200, y: 340, w: 260, h: 180 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Meeting Room Gamma',
+    type: 'meeting' as const,
+    geometry: { x: 140, y: 580, w: 260, h: 180 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Coworking South-West',
+    type: 'open' as const,
+    geometry: { x: 140, y: 800, w: 380, h: 260 },
+    audioIsolated: false,
+  },
+  {
+    name: 'Focus Pod SW',
+    type: 'focus' as const,
+    geometry: { x: 540, y: 840, w: 130, h: 150 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Meeting Room Delta',
+    type: 'meeting' as const,
+    geometry: { x: 1200, y: 580, w: 260, h: 180 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Coworking South-East',
+    type: 'open' as const,
+    geometry: { x: 1080, y: 800, w: 380, h: 260 },
+    audioIsolated: false,
+  },
+  {
+    name: 'Focus Pod SE',
+    type: 'focus' as const,
+    geometry: { x: 930, y: 840, w: 130, h: 150 },
+    audioIsolated: true,
+  },
+];
+
 /** Creates a workspace, makes the creator the owner, and seeds channels + standard office rooms. */
-export async function createWorkspace(ownerId: string, name: string) {
+export async function createWorkspace(
+  ownerId: string,
+  name: string,
+  preset: 'standard' | 'campus-garden' = 'standard',
+) {
+  const targetZones = preset === 'campus-garden' ? CAMPUS_GARDEN_ZONES : DEFAULT_OFFICE_ZONES;
   return prisma.$transaction(async (tx) => {
     const workspace = await tx.workspace.create({
-      data: { name, slug: slugify(name), ownerId },
+      data: { name, slug: slugify(name), ownerId, layout: { theme: preset } },
     });
     await tx.membership.create({
       data: { workspaceId: workspace.id, userId: ownerId, role: MemberRole.Owner },
@@ -78,7 +164,7 @@ export async function createWorkspace(ownerId: string, name: string) {
     await tx.channel.create({
       data: { workspaceId: workspace.id, scope: ChannelScope.Workspace },
     });
-    for (const z of DEFAULT_OFFICE_ZONES) {
+    for (const z of targetZones) {
       await tx.zone.create({
         data: {
           workspaceId: workspace.id,
@@ -93,11 +179,15 @@ export async function createWorkspace(ownerId: string, name: string) {
   });
 }
 
-/** Clears and populates the standard 8-room office layout on an existing workspace. */
-export async function seedDefaultZones(workspaceId: string) {
+/** Clears and populates the requested office layout preset on an existing workspace. */
+export async function seedDefaultZones(
+  workspaceId: string,
+  preset: 'standard' | 'campus-garden' = 'standard',
+) {
+  const targetZones = preset === 'campus-garden' ? CAMPUS_GARDEN_ZONES : DEFAULT_OFFICE_ZONES;
   return prisma.$transaction(async (tx) => {
     await tx.zone.deleteMany({ where: { workspaceId } });
-    for (const z of DEFAULT_OFFICE_ZONES) {
+    for (const z of targetZones) {
       await tx.zone.create({
         data: {
           workspaceId,
@@ -108,6 +198,10 @@ export async function seedDefaultZones(workspaceId: string) {
         },
       });
     }
+    await tx.workspace.update({
+      where: { id: workspaceId },
+      data: { layout: { theme: preset } },
+    });
     return tx.zone.findMany({ where: { workspaceId }, orderBy: { createdAt: 'asc' } });
   });
 }

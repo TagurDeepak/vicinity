@@ -12,6 +12,15 @@ import {
 import { Avatar } from '@vicinity/ui';
 import { usePresenceStore } from '@/stores/presence';
 import { findPath, getDoorwayForZone, resolveMovement } from './collision';
+import {
+  drawCampusGrass,
+  drawCampusWalkways,
+  drawCampusFountainsAndPlaza,
+  drawCampusOutdoorGardens,
+  drawCampusTrees,
+  drawCampusStreetLamps,
+  drawCampusFurniture,
+} from './campus-render';
 
 const SPEED = 260; // world units / second
 
@@ -59,6 +68,7 @@ export function getZoneAt(zones: Zone[], p: Vec2): Zone | null {
 
 export function OfficeCanvas({
   zones,
+  layoutTheme,
   lockedZoneIds = new Set(),
   walkToTarget = null,
   onMove,
@@ -68,6 +78,7 @@ export function OfficeCanvas({
   onStartDm,
 }: {
   zones: Zone[];
+  layoutTheme?: 'standard' | 'campus-garden';
   lockedZoneIds?: Set<string>;
   walkToTarget?: Vec2 | null;
   onMove: (p: Vec2) => void;
@@ -76,6 +87,13 @@ export function OfficeCanvas({
   onZoneChange?: (zone: Zone | null) => void;
   onStartDm?: (userId: string, displayName: string) => void;
 }) {
+  const isCampus =
+    layoutTheme === 'campus-garden' ||
+    zones.some(
+      (z) =>
+        z.name.toLowerCase().includes('fountain') ||
+        z.name.toLowerCase().includes('coworking'),
+    );
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(FLOOR_WIDTH);
@@ -236,29 +254,41 @@ export function OfficeCanvas({
       // Draw in CSS pixels; scale the backing store for crisp HiDPI rendering.
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // floor backdrop + corridor walkways
-      ctx.fillStyle = '#f1f4f9';
-      ctx.fillRect(0, 0, width, cssHeight);
+      if (isCampus) {
+        drawCampusGrass(ctx, width, cssHeight, s);
+        drawCampusWalkways(ctx, s);
+        drawCampusOutdoorGardens(ctx, s);
+        drawCampusFountainsAndPlaza(ctx, s, now);
+      } else {
+        // floor backdrop + corridor walkways
+        ctx.fillStyle = '#f1f4f9';
+        ctx.fillRect(0, 0, width, cssHeight);
 
-      drawCorridorWalkways(ctx, s);
+        drawCorridorWalkways(ctx, s);
 
-      ctx.strokeStyle = 'rgba(61,67,86,0.04)';
-      ctx.lineWidth = 1;
-      for (let gx = 0; gx <= FLOOR_WIDTH; gx += 80) {
-        ctx.beginPath();
-        ctx.moveTo(gx * s, 0);
-        ctx.lineTo(gx * s, cssHeight);
-        ctx.stroke();
-      }
-      for (let gy = 0; gy <= FLOOR_HEIGHT; gy += 80) {
-        ctx.beginPath();
-        ctx.moveTo(0, gy * s);
-        ctx.lineTo(width, gy * s);
-        ctx.stroke();
+        ctx.strokeStyle = 'rgba(61,67,86,0.04)';
+        ctx.lineWidth = 1;
+        for (let gx = 0; gx <= FLOOR_WIDTH; gx += 80) {
+          ctx.beginPath();
+          ctx.moveTo(gx * s, 0);
+          ctx.lineTo(gx * s, cssHeight);
+          ctx.stroke();
+        }
+        for (let gy = 0; gy <= FLOOR_HEIGHT; gy += 80) {
+          ctx.beginPath();
+          ctx.moveTo(0, gy * s);
+          ctx.lineTo(width, gy * s);
+          ctx.stroke();
+        }
       }
 
       // rooms + furniture with architectural walls & textures
-      for (const z of zones) drawZone(ctx, z, s, lockedZoneIdsRef.current);
+      for (const z of zones) drawZone(ctx, z, s, lockedZoneIdsRef.current, isCampus);
+
+      if (isCampus) {
+        drawCampusTrees(ctx, s);
+        drawCampusStreetLamps(ctx, s);
+      }
 
       // Auto-path waypoint visualization
       if (pathWaypoints.current.length > 0) {
@@ -468,7 +498,7 @@ function drawCorridorWalkways(ctx: CanvasRenderingContext2D, s: number): void {
   ctx.restore();
 }
 
-function roundRect(
+export function roundRect(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -618,14 +648,20 @@ function drawZone(
   z: Zone,
   s: number,
   lockedZoneIds: Set<string> = new Set(),
+  isCampus: boolean = false,
 ): void {
+  // If campus layout and it's the Grand Fountain Plaza, the open courtyard is already rendered
+  if (isCampus && z.name.toLowerCase().includes('fountain')) {
+    return;
+  }
+
   const g = z.geometry;
   const X = g.x * s;
   const Y = g.y * s;
   const W = g.w * s;
   const H = g.h * s;
   const style = ZONE_STYLE[z.type] ?? ZONE_STYLE.open!;
-  const isEnclosed = z.type !== 'lounge' && z.type !== 'open';
+  const isEnclosed = isCampus ? true : (z.type !== 'lounge' && z.type !== 'open');
   const isLocked = lockedZoneIds.has(z.id);
 
   // 1. Floor Textures
@@ -633,7 +669,7 @@ function drawZone(
   ctx.save();
   ctx.clip();
 
-  if (style.floorType === 'wood') {
+  if (isCampus || style.floorType === 'wood') {
     drawWoodParquet(ctx, X, Y, W, H, s);
   } else if (style.floorType === 'tile') {
     drawCeramicTiles(ctx, X, Y, W, H, s);
@@ -662,9 +698,9 @@ function drawZone(
       ctx.fillRect(dX - (door.side === 'left' ? 3 * s : 5 * s), dY, 8 * s, dH);
     }
 
-    // Outer double-slate wall
+    // Outer wall
     ctx.lineWidth = 4 * s;
-    ctx.strokeStyle = '#334155'; // Dark slate architectural wall
+    ctx.strokeStyle = isCampus ? '#e2e8f0' : '#334155';
     ctx.lineCap = 'round';
     ctx.beginPath();
 
@@ -707,6 +743,11 @@ function drawZone(
     }
     ctx.stroke();
 
+    // Outer shadow border
+    ctx.lineWidth = 1 * s;
+    ctx.strokeStyle = isCampus ? '#94a3b8' : '#1e293b';
+    ctx.strokeRect(X - 2 * s, Y - 2 * s, W + 4 * s, H + 4 * s);
+
     // If locked, draw the closed door barrier across the doorway
     if (isLocked) {
       ctx.beginPath();
@@ -729,22 +770,42 @@ function drawZone(
   }
 
   // 3. Furniture & Props
-  drawFurniture(ctx, z.type, X, Y, W, H, s);
+  if (isCampus) {
+    drawCampusFurniture(ctx, z.name, z.type, X, Y, W, H, s);
+  } else {
+    drawFurniture(ctx, z.type, X, Y, W, H, s);
+  }
 
   // 4. Header pill (icon + name)
-  ctx.font = `600 ${13 * s}px Inter, sans-serif`;
-  const label = isLocked ? `🔒 ${z.name} (LOCKED)` : `${style.icon}  ${z.name}`;
-  const tw = ctx.measureText(label).width;
-  roundRect(ctx, X + 12 * s, Y + 12 * s, tw + 18 * s, 26 * s, 13 * s);
-  ctx.fillStyle = isLocked ? '#fef2f2' : 'rgba(255,255,255,0.94)';
-  ctx.fill();
-  ctx.strokeStyle = isLocked ? '#ef4444' : style.border;
-  ctx.lineWidth = isLocked ? 1.5 : 1;
-  ctx.stroke();
-  ctx.fillStyle = isLocked ? '#b91c1c' : '#1e293b';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, X + 21 * s, Y + 25 * s);
-  ctx.textBaseline = 'alphabetic';
+  if (isCampus) {
+    ctx.font = `bold ${11 * s}px Inter, sans-serif`;
+    const label = isLocked ? `🔒 ${z.name} (LOCKED)` : `🔊  ${z.name}`;
+    const tw = ctx.measureText(label).width;
+    roundRect(ctx, X + 10 * s, Y + 10 * s, tw + 18 * s, 22 * s, 6 * s);
+    ctx.fillStyle = isLocked ? 'rgba(239, 68, 68, 0.9)' : 'rgba(30, 41, 59, 0.88)';
+    ctx.fill();
+    ctx.strokeStyle = isLocked ? '#ef4444' : 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, X + 19 * s, Y + 21 * s);
+    ctx.textBaseline = 'alphabetic';
+  } else {
+    ctx.font = `600 ${13 * s}px Inter, sans-serif`;
+    const label = isLocked ? `🔒 ${z.name} (LOCKED)` : `${style.icon}  ${z.name}`;
+    const tw = ctx.measureText(label).width;
+    roundRect(ctx, X + 12 * s, Y + 12 * s, tw + 18 * s, 26 * s, 13 * s);
+    ctx.fillStyle = isLocked ? '#fef2f2' : 'rgba(255,255,255,0.94)';
+    ctx.fill();
+    ctx.strokeStyle = isLocked ? '#ef4444' : style.border;
+    ctx.lineWidth = isLocked ? 1.5 : 1;
+    ctx.stroke();
+    ctx.fillStyle = isLocked ? '#b91c1c' : '#1e293b';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, X + 21 * s, Y + 25 * s);
+    ctx.textBaseline = 'alphabetic';
+  }
 }
 
 function drawWoodParquet(ctx: CanvasRenderingContext2D, X: number, Y: number, W: number, H: number, s: number): void {

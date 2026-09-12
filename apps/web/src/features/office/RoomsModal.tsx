@@ -32,15 +32,15 @@ export function RoomsModal({
 
   if (!isOpen) return null;
 
-  async function handleApplyPreset() {
+  async function handleApplyPreset(preset: 'standard' | 'campus-garden') {
     setError(null);
     setLoading(true);
     try {
-      await applyPresetZones(workspaceId);
+      await applyPresetZones(workspaceId, preset);
       onZonesUpdated();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to apply office layout');
+      setError(err instanceof Error ? err.message : 'Failed to apply layout preset');
     } finally {
       setLoading(false);
     }
@@ -157,21 +157,75 @@ export function RoomsModal({
         <CardBody className="space-y-4 pt-4 max-h-[70vh] overflow-y-auto">
           {error && <p className="text-xs text-danger-600 bg-danger-50 p-2.5 rounded-xl">{error}</p>}
 
-          {/* TAB 1: PRESET */}
+          {/* TAB 1: PRESETS */}
           {tab === 'preset' && (
             <div className="space-y-4">
+              {/* CHOICE 1: GARDEN CAMPUS & GRAND PLAZA */}
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-emerald-950 flex items-center gap-1.5">
+                      <span>🌿</span> Garden Campus & Grand Plaza (13 Zones)
+                    </h3>
+                    <p className="mt-1 text-xs text-emerald-900/80">
+                      Kumospace-style outdoor park campus featuring a central 4-fountain plaza, plush sofas, garden picnic lawns, and 4 room quadrants:
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-emerald-600/15 px-2.5 py-1 text-[11px] font-bold text-emerald-800">
+                    New Layout
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs text-ink-700 pt-1">
+                  <div className="flex items-center gap-1.5">
+                    <span>⛲</span>
+                    <span>Grand Fountain Plaza (4 pools)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>🌸</span>
+                    <span>Cherry Blossoms & Pines</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>💻</span>
+                    <span>4 Coworking Desk Pods</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>📊</span>
+                    <span>4 Meeting Suites (Isolated)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>🎧</span>
+                    <span>4 Focus Pods (Lockable)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>🦩</span>
+                    <span>Picnic Lawns, Floats & Puppy</span>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() => handleApplyPreset('campus-garden')}
+                  disabled={loading}
+                  className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white border-none"
+                  size="md"
+                >
+                  {loading ? 'Applying Layout…' : '🌿 Apply Garden Campus Layout to Floor'}
+                </Button>
+              </div>
+
+              {/* CHOICE 2: STANDARD MODERN OFFICE */}
               <div className="rounded-2xl border border-brand-200 bg-brand-50/40 p-4 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-brand-900">
-                      Standard Modern Office (8 Rooms)
+                    <h3 className="text-sm font-semibold text-brand-900 flex items-center gap-1.5">
+                      <span>🏢</span> Standard Modern Office (8 Rooms)
                     </h3>
                     <p className="mt-1 text-xs text-brand-800/80">
-                      Instantly builds a comprehensive office floor with architectural walls, doorways, and audio isolation:
+                      Comprehensive indoor corporate floor with executive boardroom, conference rooms, focus pods, and cafe:
                     </p>
                   </div>
                   <span className="rounded-full bg-brand-600/10 px-2.5 py-1 text-[11px] font-bold text-brand-700">
-                    Recommended
+                    Classic
                   </span>
                 </div>
 
@@ -203,12 +257,12 @@ export function RoomsModal({
                 </div>
 
                 <Button
-                  onClick={handleApplyPreset}
+                  onClick={() => handleApplyPreset('standard')}
                   disabled={loading}
                   className="w-full mt-2"
                   size="md"
                 >
-                  {loading ? 'Applying Layout…' : '✨ Apply Full Office Layout to Floor'}
+                  {loading ? 'Applying Layout…' : '🏢 Apply Modern Office Layout to Floor'}
                 </Button>
               </div>
             </div>

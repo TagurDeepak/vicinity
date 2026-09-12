@@ -26,11 +26,34 @@ const DOOR_WIDTH = 76;
  */
 export function getDoorwayForZone(z: Zone): Doorway {
   const g = z.geometry;
-  const isBottomEdge = g.y + g.h >= 900;
-  const isRightEdge = g.x + g.w >= 1500;
 
+  // Middle-left rooms facing right vertical corridor
+  if (g.x < 350 && g.y >= 300 && g.y < 750) {
+    return {
+      zoneId: z.id,
+      side: 'right',
+      x: g.x + g.w,
+      y: g.y + g.h / 2 - DOOR_WIDTH / 2,
+      w: 0,
+      h: DOOR_WIDTH,
+    };
+  }
+
+  // Middle-right rooms facing left vertical corridor
+  if (g.x >= 1050 && g.y >= 300 && g.y < 750) {
+    return {
+      zoneId: z.id,
+      side: 'left',
+      x: g.x,
+      y: g.y + g.h / 2 - DOOR_WIDTH / 2,
+      w: 0,
+      h: DOOR_WIDTH,
+    };
+  }
+
+  // Bottom edge rooms facing top corridor
+  const isBottomEdge = g.y + g.h >= 750;
   if (isBottomEdge) {
-    // Top doorway facing interior corridor
     return {
       zoneId: z.id,
       side: 'top',
@@ -41,8 +64,9 @@ export function getDoorwayForZone(z: Zone): Doorway {
     };
   }
 
+  // Boardroom or right edge in standard office
+  const isRightEdge = g.x + g.w >= 1500;
   if (isRightEdge && g.w < 350) {
-    // Left doorway
     return {
       zoneId: z.id,
       side: 'left',

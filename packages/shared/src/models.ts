@@ -22,11 +22,19 @@ export interface UserProfile {
   status: UserStatus;
 }
 
+export type WorkspaceLayoutTheme = 'standard' | 'campus-garden';
+
+export interface WorkspaceLayout {
+  theme?: WorkspaceLayoutTheme;
+  [key: string]: unknown;
+}
+
 export interface Workspace {
   id: string;
   name: string;
   slug: string;
   ownerId: string;
+  layout?: WorkspaceLayout;
   createdAt: string;
 }
 

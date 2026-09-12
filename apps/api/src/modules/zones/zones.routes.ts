@@ -46,11 +46,17 @@ zonesRouter.post(
   }),
 );
 
+const presetSchema = z.object({
+  preset: z.enum(['standard', 'campus-garden']).optional(),
+});
+
 zonesRouter.post(
   '/preset',
   requireWorkspaceRole(MemberRole.Admin),
+  validate(presetSchema),
   asyncHandler(async (req, res) => {
-    res.json(await seedDefaultZones(req.params.workspaceId));
+    const preset = req.body?.preset ?? 'standard';
+    res.json(await seedDefaultZones(req.params.workspaceId, preset));
   }),
 );
 

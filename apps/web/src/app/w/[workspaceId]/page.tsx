@@ -239,6 +239,7 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
         <main className="relative flex-1 overflow-hidden rounded-2xl shadow-sm shadow-black/5">
           <OfficeCanvas
             zones={zones.data ?? []}
+            layoutTheme={workspace.data?.layout?.theme}
             lockedZoneIds={lockedZoneIds}
             walkToTarget={walkToTarget}
             onMove={move}
@@ -294,7 +295,7 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
                 onClick={() => setRoomsOpen(true)}
                 className="font-semibold text-brand-700 underline hover:text-brand-900"
               >
-                Apply full 8-room office layout →
+                Apply Garden Campus or Modern Office layout →
               </button>
             </div>
           )}

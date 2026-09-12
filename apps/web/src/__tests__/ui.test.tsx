@@ -76,4 +76,20 @@ describe('obstacle-avoiding pathfinding', () => {
     expect(finalStep.x).toBe(200);
     expect(finalStep.y).toBe(150);
   });
+
+  it('correctly paths into campus garden rooms through corridor-facing doorways', () => {
+    const { getDoorwayForZone } = require('../features/office/collision');
+    const campusMeeting = {
+      id: 'meeting-alpha',
+      workspaceId: 'ws1',
+      name: 'Meeting Room Alpha',
+      type: 'meeting' as const,
+      geometry: { x: 140, y: 340, w: 260, h: 180 },
+      isPrivate: true,
+      audioIsolated: true,
+    };
+    const doorway = getDoorwayForZone(campusMeeting);
+    expect(doorway.side).toBe('right');
+    expect(doorway.x).toBe(400); // 140 + 260
+  });
 });
