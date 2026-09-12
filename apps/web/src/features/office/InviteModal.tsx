@@ -35,9 +35,18 @@ export function InviteModal({ workspaceId, isOpen, onClose }: InviteModalProps) 
     }
   }
 
+  function getCleanOrigin(): string {
+    if (typeof window === 'undefined') return '';
+    if (process.env.NEXT_PUBLIC_APP_URL) {
+      return process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, '');
+    }
+    // If inside a private Vercel preview/branch URL, normalize to the public production domain
+    return window.location.origin.replace(/-(?:git-[^.]+|[a-z0-9]{7,}-[^.]+)\.vercel\.app$/, '.vercel.app');
+  }
+
   const inviteUrl =
     invite && typeof window !== 'undefined'
-      ? `${window.location.origin}/invite/${invite.token}`
+      ? `${getCleanOrigin()}/invite/${invite.token}`
       : '';
 
   async function handleCopy() {
