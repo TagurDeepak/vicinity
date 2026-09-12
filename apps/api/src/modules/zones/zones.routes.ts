@@ -5,6 +5,7 @@ import { asyncHandler } from '../../lib/async-handler';
 import { requireAuth, requireWorkspaceRole } from '../../middleware/auth';
 import { validate } from '../../middleware/validate';
 import * as service from './zones.service';
+import { seedDefaultZones } from '../workspaces/workspaces.service';
 
 // mergeParams lets us read :workspaceId from the parent mount path.
 export const zonesRouter = Router({ mergeParams: true });
@@ -42,6 +43,14 @@ zonesRouter.post(
   validate(createSchema),
   asyncHandler(async (req, res) => {
     res.status(201).json(await service.create(req.params.workspaceId, req.body));
+  }),
+);
+
+zonesRouter.post(
+  '/preset',
+  requireWorkspaceRole(MemberRole.Admin),
+  asyncHandler(async (req, res) => {
+    res.json(await seedDefaultZones(req.params.workspaceId));
   }),
 );
 

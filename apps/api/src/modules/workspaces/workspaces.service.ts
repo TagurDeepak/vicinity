@@ -15,7 +15,58 @@ function slugify(name: string): string {
   return `${base || 'workspace'}-${suffix}`;
 }
 
-/** Creates a workspace, makes the creator the owner, and seeds a default channel + zone. */
+export const DEFAULT_OFFICE_ZONES = [
+  {
+    name: 'Commons Lounge',
+    type: 'lounge' as const,
+    geometry: { x: 80, y: 100, w: 460, h: 360 },
+    audioIsolated: false,
+  },
+  {
+    name: 'Focus Pod 1',
+    type: 'focus' as const,
+    geometry: { x: 80, y: 520, w: 220, h: 200 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Focus Pod 2',
+    type: 'focus' as const,
+    geometry: { x: 320, y: 520, w: 220, h: 200 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Private Office',
+    type: 'private' as const,
+    geometry: { x: 80, y: 760, w: 460, h: 180 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Meeting Room Alpha',
+    type: 'meeting' as const,
+    geometry: { x: 600, y: 100, w: 460, h: 360 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Meeting Room Beta',
+    type: 'meeting' as const,
+    geometry: { x: 600, y: 520, w: 460, h: 420 },
+    audioIsolated: true,
+  },
+  {
+    name: 'The Boardroom',
+    type: 'meeting' as const,
+    geometry: { x: 1120, y: 100, w: 420, h: 460 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Breakout Cafe',
+    type: 'open' as const,
+    geometry: { x: 1120, y: 620, w: 420, h: 320 },
+    audioIsolated: false,
+  },
+];
+
+/** Creates a workspace, makes the creator the owner, and seeds channels + standard office rooms. */
 export async function createWorkspace(ownerId: string, name: string) {
   return prisma.$transaction(async (tx) => {
     const workspace = await tx.workspace.create({
@@ -27,15 +78,37 @@ export async function createWorkspace(ownerId: string, name: string) {
     await tx.channel.create({
       data: { workspaceId: workspace.id, scope: ChannelScope.Workspace },
     });
-    await tx.zone.create({
-      data: {
-        workspaceId: workspace.id,
-        name: 'Commons',
-        type: 'lounge',
-        geometry: { x: 100, y: 100, w: 400, h: 300 },
-      },
-    });
+    for (const z of DEFAULT_OFFICE_ZONES) {
+      await tx.zone.create({
+        data: {
+          workspaceId: workspace.id,
+          name: z.name,
+          type: z.type,
+          geometry: z.geometry,
+          audioIsolated: z.audioIsolated,
+        },
+      });
+    }
     return workspace;
+  });
+}
+
+/** Clears and populates the standard 8-room office layout on an existing workspace. */
+export async function seedDefaultZones(workspaceId: string) {
+  return prisma.$transaction(async (tx) => {
+    await tx.zone.deleteMany({ where: { workspaceId } });
+    for (const z of DEFAULT_OFFICE_ZONES) {
+      await tx.zone.create({
+        data: {
+          workspaceId,
+          name: z.name,
+          type: z.type,
+          geometry: z.geometry,
+          audioIsolated: z.audioIsolated,
+        },
+      });
+    }
+    return tx.zone.findMany({ where: { workspaceId }, orderBy: { createdAt: 'asc' } });
   });
 }
 

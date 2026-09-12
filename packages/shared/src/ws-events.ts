@@ -59,6 +59,12 @@ export interface ClientToServerEvents {
   'chat:subscribe': (payload: { channelId: string }) => void;
   'chat:send': (payload: { channelId: string; body: string }) => void;
 
+  // Room locking & knocking
+  'room:lock': (payload: { zoneId: string }) => void;
+  'room:unlock': (payload: { zoneId: string }) => void;
+  'room:knock': (payload: { zoneId: string }) => void;
+  'room:let-in': (payload: { zoneId: string; targetUserId: string }) => void;
+
   // WebRTC signaling (relayed peer-to-peer via the server)
   'rtc:offer': (payload: RtcOffer) => void;
   'rtc:answer': (payload: RtcAnswer) => void;
@@ -67,6 +73,19 @@ export interface ClientToServerEvents {
   'rtc:call-end': (payload: { toUserId: string }) => void;
   'rtc:screen-share-start': (payload: { groupId: string }) => void;
   'rtc:screen-share-stop': (payload: { groupId: string }) => void;
+}
+
+export interface LockedRoomState {
+  zoneId: string;
+  locked: boolean;
+  lockedBy?: string;
+  lockedByName?: string;
+}
+
+export interface KnockPayload {
+  fromUserId: string;
+  fromName: string;
+  zoneId: string;
 }
 
 // ---- Server -> Client ----
@@ -83,6 +102,12 @@ export interface ServerToClientEvents {
 
   'zone:updated': (payload: { zone: Zone }) => void;
   'chat:message': (payload: { channelId: string; message: ChatMessage }) => void;
+
+  // Room locking & knocking
+  'room:locked-list': (payload: Array<{ zoneId: string; lockedBy: string; lockedByName: string }>) => void;
+  'room:lock-state': (payload: LockedRoomState) => void;
+  'room:knocked': (payload: KnockPayload) => void;
+  'room:let-in-granted': (payload: { zoneId: string; grantedBy: string }) => void;
 
   'rtc:offer': (payload: RtcOffer) => void;
   'rtc:answer': (payload: RtcAnswer) => void;

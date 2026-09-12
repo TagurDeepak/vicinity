@@ -24,6 +24,10 @@ function canHear(a: PresenceState, b: PresenceState, isolatedZones: Set<string>)
   if (aIso || bIso) {
     return a.zoneId != null && a.zoneId === b.zoneId;
   }
+  // Anyone inside the same room can hear each other irrespective of radius
+  if (a.zoneId != null && b.zoneId != null && a.zoneId === b.zoneId) {
+    return true;
+  }
   return distance(a, b) <= PROXIMITY_RADIUS;
 }
 

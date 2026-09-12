@@ -57,4 +57,10 @@ describe('computeGroups', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]!.members).toEqual(['a', 'b']);
   });
+
+  it('connects two users in the same room regardless of distance', () => {
+    const groups = computeGroups([user('a', 0, 0, 'room-1'), user('b', 800, 800, 'room-1')]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.members).toEqual(['a', 'b']);
+  });
 });

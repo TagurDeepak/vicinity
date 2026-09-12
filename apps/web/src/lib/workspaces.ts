@@ -43,6 +43,30 @@ export function listZones(workspaceId: string): Promise<Zone[]> {
   return apiFetch(`/workspaces/${workspaceId}/zones`);
 }
 
+export function applyPresetZones(workspaceId: string): Promise<Zone[]> {
+  return apiFetch(`/workspaces/${workspaceId}/zones/preset`, { method: 'POST' });
+}
+
+export function createZone(
+  workspaceId: string,
+  data: {
+    name: string;
+    type: string;
+    geometry: { x: number; y: number; w: number; h: number };
+    audioIsolated?: boolean;
+    isPrivate?: boolean;
+  },
+): Promise<Zone> {
+  return apiFetch(`/workspaces/${workspaceId}/zones`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteZone(workspaceId: string, zoneId: string): Promise<void> {
+  return apiFetch(`/workspaces/${workspaceId}/zones/${zoneId}`, { method: 'DELETE' });
+}
+
 export function listMembers(workspaceId: string): Promise<WorkspaceMember[]> {
   return apiFetch(`/workspaces/${workspaceId}/members`);
 }

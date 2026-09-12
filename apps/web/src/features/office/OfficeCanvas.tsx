@@ -9,6 +9,7 @@ import {
   type Zone,
 } from '@vicinity/shared';
 import { usePresenceStore } from '@/stores/presence';
+import { getDoorwayForZone, resolveMovement } from './collision';
 
 const SPEED = 260; // world units / second
 
@@ -55,12 +56,14 @@ export function getZoneAt(zones: Zone[], p: Vec2): Zone | null {
 
 export function OfficeCanvas({
   zones,
+  lockedZoneIds = new Set(),
   onMove,
   onZoneEnter,
   onZoneLeave,
   onZoneChange,
 }: {
   zones: Zone[];
+  lockedZoneIds?: Set<string>;
   onMove: (p: Vec2) => void;
   onZoneEnter?: (zoneId: string) => void;
   onZoneLeave?: (zoneId?: string) => void;
@@ -75,11 +78,13 @@ export function OfficeCanvas({
   const pos = useRef<Vec2>({ x: 200, y: 200 });
   const currentZoneRef = useRef<Zone | null>(null);
 
+  const lockedZoneIdsRef = useRef(lockedZoneIds);
   const onZoneEnterRef = useRef(onZoneEnter);
   const onZoneLeaveRef = useRef(onZoneLeave);
   const onZoneChangeRef = useRef(onZoneChange);
   const onMoveRef = useRef(onMove);
   useEffect(() => {
+    lockedZoneIdsRef.current = lockedZoneIds;
     onZoneEnterRef.current = onZoneEnter;
     onZoneLeaveRef.current = onZoneLeave;
     onZoneChangeRef.current = onZoneChange;
@@ -161,11 +166,14 @@ export function OfficeCanvas({
       if (keys.current.has('arrowright') || keys.current.has('d')) dx += 1;
 
       let moved = false;
+      let targetX = pos.current.x;
+      let targetY = pos.current.y;
+
       if (dx !== 0 || dy !== 0) {
         target.current = null;
         const len = Math.hypot(dx, dy) || 1;
-        pos.current.x += (dx / len) * SPEED * dt;
-        pos.current.y += (dy / len) * SPEED * dt;
+        targetX += (dx / len) * SPEED * dt;
+        targetY += (dy / len) * SPEED * dt;
         moved = true;
       } else if (target.current) {
         const tx = target.current.x - pos.current.x;
@@ -175,24 +183,31 @@ export function OfficeCanvas({
           target.current = null;
         } else {
           const move = Math.min(SPEED * dt, dist);
-          pos.current.x += (tx / dist) * move;
-          pos.current.y += (ty / dist) * move;
+          targetX += (tx / dist) * move;
+          targetY += (ty / dist) * move;
           moved = true;
         }
       }
       if (moved) {
-        pos.current.x = Math.max(16, Math.min(FLOOR_WIDTH - 16, pos.current.x));
-        pos.current.y = Math.max(16, Math.min(FLOOR_HEIGHT - 16, pos.current.y));
-        const currentCoord = { x: Math.round(pos.current.x), y: Math.round(pos.current.y) };
-        onMoveRef.current(currentCoord);
+        const resolved = resolveMovement(
+          pos.current,
+          { x: targetX, y: targetY },
+          zones,
+          lockedZoneIdsRef.current,
+        );
+        if (resolved.x !== pos.current.x || resolved.y !== pos.current.y) {
+          pos.current = resolved;
+          const currentCoord = { x: Math.round(pos.current.x), y: Math.round(pos.current.y) };
+          onMoveRef.current(currentCoord);
 
-        const activeZone = getZoneAt(zones, currentCoord);
-        if (activeZone?.id !== currentZoneRef.current?.id) {
-          const prev = currentZoneRef.current;
-          currentZoneRef.current = activeZone;
-          if (prev) onZoneLeaveRef.current?.(prev.id);
-          if (activeZone) onZoneEnterRef.current?.(activeZone.id);
-          onZoneChangeRef.current?.(activeZone);
+          const activeZone = getZoneAt(zones, currentCoord);
+          if (activeZone?.id !== currentZoneRef.current?.id) {
+            const prev = currentZoneRef.current;
+            currentZoneRef.current = activeZone;
+            if (prev) onZoneLeaveRef.current?.(prev.id);
+            if (activeZone) onZoneEnterRef.current?.(activeZone.id);
+            onZoneChangeRef.current?.(activeZone);
+          }
         }
       }
 
@@ -221,8 +236,8 @@ export function OfficeCanvas({
         ctx.stroke();
       }
 
-      // rooms + furniture
-      for (const z of zones) drawZone(ctx, z, s);
+      // rooms + furniture with architectural walls
+      for (const z of zones) drawZone(ctx, z, s, lockedZoneIdsRef.current);
 
       const groupSet = new Set(group?.members ?? []);
 
@@ -439,34 +454,124 @@ function drawCharacter(
   ctx.textBaseline = 'alphabetic';
 }
 
-function drawZone(ctx: CanvasRenderingContext2D, z: Zone, s: number): void {
+function drawZone(
+  ctx: CanvasRenderingContext2D,
+  z: Zone,
+  s: number,
+  lockedZoneIds: Set<string> = new Set(),
+): void {
   const g = z.geometry;
   const X = g.x * s;
   const Y = g.y * s;
   const W = g.w * s;
   const H = g.h * s;
   const style = ZONE_STYLE[z.type] ?? ZONE_STYLE.open!;
+  const isEnclosed = z.type !== 'lounge' && z.type !== 'open';
+  const isLocked = lockedZoneIds.has(z.id);
 
-  roundRect(ctx, X, Y, W, H, 16 * s);
+  // 1. Room Floor
+  roundRect(ctx, X, Y, W, H, 14 * s);
   ctx.fillStyle = style.fill;
   ctx.fill();
-  ctx.lineWidth = 1.5 * s;
-  ctx.strokeStyle = style.border;
-  ctx.stroke();
 
+  // 2. Architectural Walls & Doorways
+  if (isEnclosed) {
+    const door = getDoorwayForZone(z);
+    const dX = door.x * s;
+    const dY = door.y * s;
+    const dW = Math.max(door.w * s, 12 * s);
+    const dH = Math.max(door.h * s, 12 * s);
+
+    // Door mat / threshold
+    ctx.fillStyle = isLocked ? 'rgba(239, 68, 68, 0.25)' : 'rgba(0, 0, 0, 0.07)';
+    if (door.side === 'bottom') {
+      ctx.fillRect(dX, Y + H - 5 * s, dW, 8 * s);
+    } else if (door.side === 'top') {
+      ctx.fillRect(dX, Y - 3 * s, dW, 8 * s);
+    } else {
+      ctx.fillRect(dX - (door.side === 'left' ? 3 * s : 5 * s), dY, 8 * s, dH);
+    }
+
+    // Solid wall perimeter with doorway gap
+    ctx.lineWidth = 3.5 * s;
+    ctx.strokeStyle = '#475569'; // Slate architectural wall
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+
+    // Top wall
+    if (door.side === 'top' && !isLocked) {
+      ctx.moveTo(X, Y);
+      ctx.lineTo(dX, Y);
+      ctx.moveTo(dX + dW, Y);
+      ctx.lineTo(X + W, Y);
+    } else {
+      ctx.moveTo(X, Y);
+      ctx.lineTo(X + W, Y);
+    }
+
+    // Right wall
+    if (door.side === 'right' && !isLocked) {
+      ctx.lineTo(X + W, dY);
+      ctx.moveTo(X + W, dY + dH);
+      ctx.lineTo(X + W, Y + H);
+    } else {
+      ctx.lineTo(X + W, Y + H);
+    }
+
+    // Bottom wall
+    if (door.side === 'bottom' && !isLocked) {
+      ctx.lineTo(dX + dW, Y + H);
+      ctx.moveTo(dX, Y + H);
+      ctx.lineTo(X, Y + H);
+    } else {
+      ctx.lineTo(X, Y + H);
+    }
+
+    // Left wall
+    if (door.side === 'left' && !isLocked) {
+      ctx.lineTo(X, dY + dH);
+      ctx.moveTo(X, dY);
+      ctx.lineTo(X, Y);
+    } else {
+      ctx.lineTo(X, Y);
+    }
+    ctx.stroke();
+
+    // If locked, draw the closed door barrier across the doorway
+    if (isLocked) {
+      ctx.beginPath();
+      ctx.lineWidth = 4 * s;
+      ctx.strokeStyle = '#ef4444'; // Red locked barrier
+      if (door.side === 'top' || door.side === 'bottom') {
+        ctx.moveTo(dX, dY);
+        ctx.lineTo(dX + dW, dY);
+      } else {
+        ctx.moveTo(dX, dY);
+        ctx.lineTo(dX, dY + dH);
+      }
+      ctx.stroke();
+    }
+  } else {
+    // Open lounge zones
+    ctx.lineWidth = 1.5 * s;
+    ctx.strokeStyle = style.border;
+    ctx.stroke();
+  }
+
+  // 3. Furniture
   drawFurniture(ctx, z.type, X, Y, W, H, s);
 
-  // header pill (icon + name)
+  // 4. Header pill (icon + name)
   ctx.font = `600 ${13 * s}px Inter, sans-serif`;
-  const label = `${style.icon}  ${z.name}`;
+  const label = isLocked ? `🔒 ${z.name} (LOCKED)` : `${style.icon}  ${z.name}`;
   const tw = ctx.measureText(label).width;
   roundRect(ctx, X + 12 * s, Y + 12 * s, tw + 18 * s, 26 * s, 13 * s);
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.fillStyle = isLocked ? '#fef2f2' : 'rgba(255,255,255,0.92)';
   ctx.fill();
-  ctx.strokeStyle = style.border;
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = isLocked ? '#ef4444' : style.border;
+  ctx.lineWidth = isLocked ? 1.5 : 1;
   ctx.stroke();
-  ctx.fillStyle = '#3d4356';
+  ctx.fillStyle = isLocked ? '#b91c1c' : '#3d4356';
   ctx.textBaseline = 'middle';
   ctx.fillText(label, X + 21 * s, Y + 25 * s);
   ctx.textBaseline = 'alphabetic';

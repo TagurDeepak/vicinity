@@ -102,12 +102,18 @@ export function CallDock() {
         for (const [userId, el] of remoteAudioEls.current.entries()) {
           const peer = state.users[userId];
           if (!peer) continue;
-          const dist = Math.hypot(
-            me.position.x - peer.position.x,
-            me.position.y - peer.position.y,
-          );
-          // 1.0 when adjacent, fading to a low floor at the edge of the radius.
-          el.volume = Math.max(0.05, Math.min(1, 1 - dist / (PROXIMITY_RADIUS * 1.2)));
+          const sameRoom = me.zoneId != null && me.zoneId === peer.zoneId;
+          if (sameRoom) {
+            // Inside a room, everyone hears each other at full volume regardless of distance
+            el.volume = 1.0;
+          } else {
+            const dist = Math.hypot(
+              me.position.x - peer.position.x,
+              me.position.y - peer.position.y,
+            );
+            // 1.0 when adjacent, fading to a low floor at the edge of the radius.
+            el.volume = Math.max(0.05, Math.min(1, 1 - dist / (PROXIMITY_RADIUS * 1.2)));
+          }
         }
       }
       raf = requestAnimationFrame(tick);
