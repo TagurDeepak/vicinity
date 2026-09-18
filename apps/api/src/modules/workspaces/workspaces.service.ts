@@ -147,14 +147,69 @@ export const CAMPUS_GARDEN_ZONES = [
   },
 ];
 
+export const SKY_CAMPUS_3D_ZONES = [
+  {
+    name: 'Zen Garden & Koi Pond',
+    type: 'open' as const,
+    geometry: { x: 600, y: 320, w: 400, h: 260 },
+    audioIsolated: false,
+  },
+  {
+    name: 'Arched Wooden Footbridge',
+    type: 'open' as const,
+    geometry: { x: 740, y: 390, w: 140, h: 100 },
+    audioIsolated: false,
+  },
+  {
+    name: 'Skyline Executive Boardroom',
+    type: 'meeting' as const,
+    geometry: { x: 660, y: 80, w: 280, h: 220 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Zen Coffee & Barista Lounge',
+    type: 'lounge' as const,
+    geometry: { x: 990, y: 200, w: 340, h: 320 },
+    audioIsolated: false,
+  },
+  {
+    name: 'Innovation Amphitheater',
+    type: 'meeting' as const,
+    geometry: { x: 260, y: 250, w: 340, h: 320 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Cedar Library & Fireplace',
+    type: 'focus' as const,
+    geometry: { x: 500, y: 600, w: 300, h: 220 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Private Focus Pods',
+    type: 'private' as const,
+    geometry: { x: 840, y: 620, w: 220, h: 200 },
+    audioIsolated: true,
+  },
+  {
+    name: 'Wrap-Around Sky Deck',
+    type: 'open' as const,
+    geometry: { x: 100, y: 50, w: 1400, h: 800 },
+    audioIsolated: false,
+  },
+];
+
 /** Creates a workspace, makes the creator the owner, and seeds channels + standard office rooms. */
 export async function createWorkspace(
   ownerId: string,
   name: string,
-  preset: 'standard' | 'campus-garden' | 'campus-3d' = 'standard',
+  preset: 'standard' | 'campus-garden' | 'campus-3d' | 'sky-campus-3d' = 'standard',
 ) {
   const targetZones =
-    preset === 'campus-garden' || preset === 'campus-3d' ? CAMPUS_GARDEN_ZONES : DEFAULT_OFFICE_ZONES;
+    preset === 'sky-campus-3d'
+      ? SKY_CAMPUS_3D_ZONES
+      : preset === 'campus-garden' || preset === 'campus-3d'
+        ? CAMPUS_GARDEN_ZONES
+        : DEFAULT_OFFICE_ZONES;
   return prisma.$transaction(async (tx) => {
     const workspace = await tx.workspace.create({
       data: { name, slug: slugify(name), ownerId, layout: { theme: preset } },
@@ -183,10 +238,14 @@ export async function createWorkspace(
 /** Clears and populates the requested office layout preset on an existing workspace. */
 export async function seedDefaultZones(
   workspaceId: string,
-  preset: 'standard' | 'campus-garden' | 'campus-3d' = 'standard',
+  preset: 'standard' | 'campus-garden' | 'campus-3d' | 'sky-campus-3d' = 'standard',
 ) {
   const targetZones =
-    preset === 'campus-garden' || preset === 'campus-3d' ? CAMPUS_GARDEN_ZONES : DEFAULT_OFFICE_ZONES;
+    preset === 'sky-campus-3d'
+      ? SKY_CAMPUS_3D_ZONES
+      : preset === 'campus-garden' || preset === 'campus-3d'
+        ? CAMPUS_GARDEN_ZONES
+        : DEFAULT_OFFICE_ZONES;
   return prisma.$transaction(async (tx) => {
     await tx.zone.deleteMany({ where: { workspaceId } });
     for (const z of targetZones) {

@@ -46,7 +46,7 @@ export function listZones(workspaceId: string): Promise<Zone[]> {
 
 export function applyPresetZones(
   workspaceId: string,
-  preset: 'standard' | 'campus-garden' | 'campus-3d' = 'standard',
+  preset: 'standard' | 'campus-garden' | 'campus-3d' | 'sky-campus-3d' = 'standard',
 ): Promise<Zone[]> {
   return apiFetch(`/workspaces/${workspaceId}/zones/preset`, {
     method: 'POST',

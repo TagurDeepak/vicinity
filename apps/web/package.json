@@ -12,12 +12,14 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.51.1",
+    "@types/three": "^0.186.0",
     "@vicinity/shared": "*",
     "@vicinity/ui": "*",
     "next": "^14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "socket.io-client": "^4.7.5",
+    "three": "^0.186.0",
     "zustand": "^4.5.4"
   },
   "devDependencies": {

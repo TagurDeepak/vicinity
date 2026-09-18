@@ -25,6 +25,12 @@ import {
   drawCampus3DBackdrop,
   drawCampusFountainRipples,
 } from './campus-render';
+import dynamic from 'next/dynamic';
+
+const SkyCampus3D = dynamic(
+  () => import('./SkyCampus3D').then((mod) => mod.SkyCampus3D),
+  { ssr: false },
+);
 
 const SPEED = 260; // world units / second
 
@@ -108,7 +114,7 @@ export function OfficeCanvas({
   onStartDm,
 }: {
   zones: Zone[];
-  layoutTheme?: 'standard' | 'campus-garden' | 'campus-3d';
+  layoutTheme?: 'standard' | 'campus-garden' | 'campus-3d' | 'sky-campus-3d';
   lockedZoneIds?: Set<string>;
   walkToTarget?: Vec2 | null;
   onMove: (p: Vec2) => void;
@@ -120,21 +126,30 @@ export function OfficeCanvas({
   const isCampus =
     layoutTheme === 'campus-garden' ||
     layoutTheme === 'campus-3d' ||
+    layoutTheme === 'sky-campus-3d' ||
     zones.some(
       (z) =>
         z.name.toLowerCase().includes('fountain') ||
-        z.name.toLowerCase().includes('coworking'),
+        z.name.toLowerCase().includes('coworking') ||
+        z.name.toLowerCase().includes('penthouse') ||
+        z.name.toLowerCase().includes('terrace'),
     );
 
-  // User can toggle between 3D aesthetic view and original 2D garden view on demand
-  const [campusViewMode, setCampusViewMode] = useState<'3d' | '2d'>(
-    layoutTheme === 'campus-garden' ? '2d' : '3d',
+  // User can toggle between 3D Sky-Tower, 3D aesthetic campus, and original 2D garden view on demand
+  const [campusViewMode, setCampusViewMode] = useState<'sky-3d' | '3d' | '2d'>(
+    layoutTheme === 'sky-campus-3d'
+      ? 'sky-3d'
+      : layoutTheme === 'campus-garden'
+        ? '2d'
+        : '3d',
   );
   const campusViewModeRef = useRef(campusViewMode);
   campusViewModeRef.current = campusViewMode;
 
   useEffect(() => {
-    if (layoutTheme === 'campus-garden') {
+    if (layoutTheme === 'sky-campus-3d') {
+      setCampusViewMode('sky-3d');
+    } else if (layoutTheme === 'campus-garden') {
       setCampusViewMode('2d');
     } else if (layoutTheme === 'campus-3d') {
       setCampusViewMode('3d');
@@ -650,6 +665,58 @@ export function OfficeCanvas({
     setSelectedUser(null);
   }
 
+  if (campusViewMode === 'sky-3d') {
+    return (
+      <div
+        ref={containerRef}
+        className="relative h-full w-full overflow-hidden rounded-2xl border border-surface-3 bg-slate-950 select-none"
+      >
+        <SkyCampus3D
+          zones={zones}
+          onMove={onMove}
+          onZoneEnter={onZoneEnter}
+          onZoneLeave={onZoneLeave}
+          onZoneChange={onZoneChange}
+          onStartDm={onStartDm}
+        />
+
+        {/* Floating View Switcher HUD */}
+        <div className="absolute bottom-4 right-4 z-20 flex items-center gap-1 rounded-2xl border border-white/10 bg-slate-900/90 p-1.5 shadow-2xl backdrop-blur">
+          <div className="flex items-center rounded-xl bg-slate-800/80 p-0.5 border border-white/10">
+            <button
+              onClick={() => setCampusViewMode('sky-3d')}
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold bg-indigo-600 text-white shadow-sm"
+              title="3D Sky-Tower & Penthouse Terrace"
+            >
+              <span>🌌 Sky-Tower</span>
+            </button>
+            <button
+              onClick={() => setCampusViewMode('3d')}
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-300 hover:text-white transition"
+              title="Switch to 3D Isometric View"
+            >
+              <span>🖼️ 3D</span>
+            </button>
+            <button
+              onClick={() => setCampusViewMode('2d')}
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-300 hover:text-white transition"
+              title="Switch to 2D Garden View"
+            >
+              <span>🌿 2D</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Wave notification toast */}
+        {waveToast && (
+          <div className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 rounded-full bg-surface-0/95 px-4 py-2 text-sm font-semibold text-brand-700 shadow-xl border border-brand-200 backdrop-blur animate-in fade-in slide-in-from-top-2">
+            {waveToast}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       ref={containerRef}
@@ -704,6 +771,13 @@ export function OfficeCanvas({
 
         {isCampus && (
           <div className="ml-1 flex items-center rounded-xl bg-slate-800/80 p-0.5 border border-white/10">
+            <button
+              onClick={() => setCampusViewMode('sky-3d')}
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-300 hover:text-white transition"
+              title="Switch to 3D Sky-Tower & Penthouse Terrace"
+            >
+              <span>🌌 Sky-Tower</span>
+            </button>
             <button
               onClick={() => setCampusViewMode('3d')}
               className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${

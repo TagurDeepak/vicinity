@@ -22,7 +22,7 @@ export interface UserProfile {
   status: UserStatus;
 }
 
-export type WorkspaceLayoutTheme = 'standard' | 'campus-garden' | 'campus-3d';
+export type WorkspaceLayoutTheme = 'standard' | 'campus-garden' | 'campus-3d' | 'sky-campus-3d';
 
 export interface WorkspaceLayout {
   theme?: WorkspaceLayoutTheme;

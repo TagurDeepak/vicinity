@@ -10,7 +10,7 @@ const customConfig = {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   // Transpile the workspace TS packages that are symlinked into node_modules.
-  transformIgnorePatterns: ['/node_modules/(?!(?:@vicinity)/)'],
+  transformIgnorePatterns: ['/node_modules/(?!(?:@vicinity|three)/)'],
 };
 
 module.exports = createJestConfig(customConfig);

@@ -26,8 +26,16 @@ export function CallDock() {
 
   const localRef = useRef<HTMLVideoElement>(null);
   const stageRef = useRef<HTMLVideoElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const remoteVideoEls = useRef<Map<string, HTMLVideoElement>>(new Map());
   const remoteAudioEls = useRef<Map<string, HTMLAudioElement>>(new Map());
+
+  const scrollLeft = () => {
+    scrollContainerRef.current?.scrollBy({ left: -240, behavior: 'smooth' });
+  };
+  const scrollRight = () => {
+    scrollContainerRef.current?.scrollBy({ left: 240, behavior: 'smooth' });
+  };
 
   const remoteEntries = Object.entries(remote);
   const localHasVideo = (localStream?.getVideoTracks().length ?? 0) > 0 || camOn || sharing;
@@ -187,18 +195,43 @@ export function CallDock() {
                   Active Video ({totalParticipants})
                 </span>
               </div>
-              <button
-                onClick={() => setCollapsed(true)}
-                className="flex h-5 w-5 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition"
-                title="Minimize video window"
-                aria-label="Minimize"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-1.5">
+                {totalParticipants > 2 && (
+                  <div className="flex items-center gap-1 mr-1">
+                    <button
+                      onClick={scrollLeft}
+                      className="flex h-5 w-5 items-center justify-center rounded bg-white/10 text-slate-300 hover:bg-white/20 hover:text-white transition text-[10px]"
+                      title="Scroll videos left"
+                      aria-label="Scroll left"
+                    >
+                      ◀
+                    </button>
+                    <button
+                      onClick={scrollRight}
+                      className="flex h-5 w-5 items-center justify-center rounded bg-white/10 text-slate-300 hover:bg-white/20 hover:text-white transition text-[10px]"
+                      title="Scroll videos right"
+                      aria-label="Scroll right"
+                    >
+                      ▶
+                    </button>
+                  </div>
+                )}
+                <button
+                  onClick={() => setCollapsed(true)}
+                  className="flex h-5 w-5 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition"
+                  title="Minimize video window"
+                  aria-label="Minimize"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* Video Tiles List: Clean row of 16:9 fixed tiles */}
-            <div className="flex gap-2.5 overflow-x-auto max-w-[80vw]">
+            <div
+              ref={scrollContainerRef}
+              className="flex gap-2.5 overflow-x-auto max-w-[80vw] scroll-smooth pb-0.5"
+            >
               {/* Local self-view */}
               <Tile
                 label="You"

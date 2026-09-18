@@ -32,7 +32,9 @@ export function RoomsModal({
 
   if (!isOpen) return null;
 
-  async function handleApplyPreset(preset: 'standard' | 'campus-garden' | 'campus-3d') {
+  async function handleApplyPreset(
+    preset: 'standard' | 'campus-garden' | 'campus-3d' | 'sky-campus-3d',
+  ) {
     setError(null);
     setLoading(true);
     try {
@@ -160,7 +162,60 @@ export function RoomsModal({
           {/* TAB 1: PRESETS */}
           {tab === 'preset' && (
             <div className="space-y-4">
-              {/* CHOICE 1: 3D AESTHETIC CAMPUS */}
+              {/* CHOICE 1: 3D SKY-TOWER & PENTHOUSE TERRACE (MULTI-FLOOR) */}
+              <div className="rounded-2xl border-2 border-indigo-400 bg-indigo-50/60 p-4 space-y-3 shadow-md relative overflow-hidden">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-indigo-950 flex items-center gap-1.5">
+                      <span>🌌</span> 3D Sky-Tower & Penthouse Terrace (Multi-Floor)
+                    </h3>
+                    <p className="mt-1 text-xs text-indigo-900/80 leading-relaxed">
+                      WebGL 3D skyscraper with interactive multi-floor elevator, user-addable floors, penthouse terrace with koi pond, day/night lighting, and dedicated 16:9 video feeds:
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-indigo-600/15 px-2.5 py-1 text-[11px] font-bold text-indigo-800">
+                    ✨ Multi-Floor 3D
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs text-ink-700 pt-1">
+                  <div className="flex items-center gap-1.5">
+                    <span>🛗</span>
+                    <span>Multi-Floor Elevator</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>➕</span>
+                    <span>Add Custom Floors on the Fly</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>🌿</span>
+                    <span>Penthouse Rooftop Terrace</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>🐟</span>
+                    <span>Living Animated Koi Pond</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>💡</span>
+                    <span>4 Day/Night Lighting Modes</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>📹</span>
+                    <span>Dedicated 16:9 Video Carousel</span>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() => handleApplyPreset('sky-campus-3d')}
+                  disabled={loading}
+                  className="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 text-white border-none shadow"
+                  size="md"
+                >
+                  {loading ? 'Applying Layout…' : '🌌 Apply 3D Sky-Tower Multi-Floor Layout'}
+                </Button>
+              </div>
+
+              {/* CHOICE 2: 3D AESTHETIC CAMPUS */}
               <div className="rounded-2xl border border-sky-300 bg-sky-50/50 p-4 space-y-3 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div>
