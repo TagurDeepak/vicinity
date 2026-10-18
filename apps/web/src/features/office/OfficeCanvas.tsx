@@ -13,7 +13,7 @@ import {
 import { Avatar } from '@vicinity/ui';
 import { useAuthStore } from '@/stores/auth';
 import { usePresenceStore } from '@/stores/presence';
-import { findPath, getDoorwayForZone, resolveMovement } from './collision';
+import { findPath, getDoorwayForZone, resolveMovement, type Doorway } from './collision';
 import {
   drawCampusGrass,
   drawCampusWalkways,
@@ -182,6 +182,8 @@ export function OfficeCanvas({
   const stuckFrames = useRef<number>(0);
   const pos = useRef<Vec2>({ x: 200, y: 200 });
   const currentZoneRef = useRef<Zone | null>(null);
+  // Animated door open/close angle progress (0.0 = closed/horizontal, 1.0 = open/vertical)
+  const doorProgressRef = useRef<Map<string, number>>(new Map());
 
   const [selectedUser, setSelectedUser] = useState<PresenceState | null>(null);
   const [waveToast, setWaveToast] = useState<string | null>(null);
@@ -426,8 +428,41 @@ export function OfficeCanvas({
         }
       }
 
-      // Rooms + furniture with architectural walls & textures
-      for (const z of zones) drawZone(ctx, z, s, lockedZoneIdsRef.current, isCampus, rendered3D);
+      // Animate door open/close angle progress (0.0 = closed/horizontal, 1.0 = open/vertical)
+      for (const z of zones) {
+        const isLocked = lockedZoneIdsRef.current.has(z.id);
+        let target = isLocked ? 0.0 : 1.0;
+        if (!isLocked) {
+          const door = getDoorwayForZone(z);
+          const doorCenter = { x: door.x + door.w / 2, y: door.y + door.h / 2 };
+          const distToDoor = Math.hypot(pos.current.x - doorCenter.x, pos.current.y - doorCenter.y);
+          if (distToDoor < 45) {
+            target = 1.15; // Swings wide open when avatar passes through
+          }
+        }
+        const current = doorProgressRef.current.get(z.id) ?? target;
+        const diff = target - current;
+        if (Math.abs(diff) > 0.002) {
+          const next = current + diff * Math.min(1, dt * 8);
+          doorProgressRef.current.set(z.id, next);
+        } else {
+          doorProgressRef.current.set(z.id, target);
+        }
+      }
+
+      // Rooms + furniture with architectural walls, animated doors & textures
+      for (const z of zones) {
+        drawZone(
+          ctx,
+          z,
+          s,
+          lockedZoneIdsRef.current,
+          isCampus,
+          rendered3D,
+          doorProgressRef.current,
+          now,
+        );
+      }
 
       // Auto-path waypoint visualization
       if (pathWaypoints.current.length > 0) {
@@ -1198,6 +1233,161 @@ function drawCharacter(
   ctx.restore();
 }
 
+/**
+ * Draws an architectural top-down CAD-style hinged door with realistic wood leaf,
+ * brass lever handle, hinge pivot pin, dotted swing arc, and fluid opening/closing animation.
+ *
+ * Usually (unlocked): The door is OPEN (stays VERTICAL into the room, leaving the corridor opening clear).
+ * When locked: The door animates to CLOSED (HORIZONTAL across the doorway, sealing the entrance with a red lock status LED).
+ */
+function drawArchitecturalDoor(
+  ctx: CanvasRenderingContext2D,
+  door: Doorway,
+  openProgress: number, // 0.0 = horizontal/closed, 1.0 = vertical/open
+  isLocked: boolean,
+  s: number,
+): void {
+  const dX = door.x * s;
+  const dY = door.y * s;
+  const dW = Math.max(door.w * s, 16 * s);
+  const dH = Math.max(door.h * s, 16 * s);
+  const isBottom = door.side === 'bottom';
+  const isTop = door.side === 'top';
+  const isRight = door.side === 'right';
+
+  // Hinge point and door leaf dimensions
+  const hx = dX;
+  const hy = dY;
+  const doorLen = isBottom || isTop ? dW : dH;
+
+  // Calculate leaf angle based on orientation and openProgress
+  // Closed (0.0): lies flush with wall (horizontal for top/bottom, vertical for left/right)
+  // Open (1.0): swings 90 degrees into the room (vertical for top/bottom, horizontal for left/right)
+  let angle = 0;
+  if (isBottom) {
+    // Wall is horizontal at bottom (y = dY). Closed = 0 rad (horizontal). Open swings -90° (upward into room).
+    angle = -openProgress * (Math.PI / 2);
+  } else if (isTop) {
+    // Wall is horizontal at top (y = dY). Closed = 0 rad (horizontal). Open swings +90° (downward into room).
+    angle = openProgress * (Math.PI / 2);
+  } else if (isRight) {
+    // Wall is vertical at right (x = dX). Closed = Math.PI / 2 (vertical). Open swings +90° (leftward into room).
+    angle = Math.PI / 2 + openProgress * (Math.PI / 2);
+  } else {
+    // Left side: Closed = Math.PI / 2 (vertical). Open swings -90° (rightward into room).
+    angle = Math.PI / 2 - openProgress * (Math.PI / 2);
+  }
+
+  const tipX = hx + Math.cos(angle) * doorLen;
+  const tipY = hy + Math.sin(angle) * doorLen;
+
+  ctx.save();
+
+  // 1. Threshold Flooring & Door Jambs
+  ctx.fillStyle = isLocked ? 'rgba(239, 68, 68, 0.14)' : 'rgba(226, 232, 240, 0.75)';
+  if (isBottom || isTop) {
+    ctx.fillRect(dX, hy - 2.5 * s, dW, 5 * s);
+  } else {
+    ctx.fillRect(hx - 2.5 * s, dY, 5 * s, dH);
+  }
+
+  // Steel Door Jamb Caps on both sides of opening
+  ctx.fillStyle = '#0f172a';
+  if (isBottom || isTop) {
+    roundRect(ctx, dX - 2.5 * s, hy - 4 * s, 5 * s, 8 * s, 1.5 * s);
+    ctx.fill();
+    roundRect(ctx, dX + dW - 2.5 * s, hy - 4 * s, 5 * s, 8 * s, 1.5 * s);
+    ctx.fill();
+  } else {
+    roundRect(ctx, hx - 4 * s, dY - 2.5 * s, 8 * s, 5 * s, 1.5 * s);
+    ctx.fill();
+    roundRect(ctx, hx - 4 * s, dY + dH - 2.5 * s, 8 * s, 5 * s, 1.5 * s);
+    ctx.fill();
+  }
+
+  // 2. Dotted Architectural Swing Path Arc
+  ctx.beginPath();
+  ctx.setLineDash([2.5 * s, 3 * s]);
+  ctx.strokeStyle = isLocked ? 'rgba(239, 68, 68, 0.40)' : 'rgba(100, 116, 139, 0.45)';
+  ctx.lineWidth = 1.2 * s;
+  if (isBottom) {
+    ctx.arc(hx, hy, doorLen, 0, -Math.PI / 2, true);
+  } else if (isTop) {
+    ctx.arc(hx, hy, doorLen, 0, Math.PI / 2, false);
+  } else if (isRight) {
+    ctx.arc(hx, hy, doorLen, Math.PI / 2, Math.PI, false);
+  } else {
+    ctx.arc(hx, hy, doorLen, Math.PI / 2, 0, true);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 3. Realistic Door Leaf Body with drop shadow
+  ctx.lineCap = 'round';
+
+  // Drop shadow
+  ctx.beginPath();
+  ctx.moveTo(hx, hy);
+  ctx.lineTo(tipX, tipY);
+  ctx.lineWidth = 6.5 * s;
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.16)';
+  ctx.stroke();
+
+  // Solid wood door slab
+  ctx.beginPath();
+  ctx.moveTo(hx, hy);
+  ctx.lineTo(tipX, tipY);
+  ctx.lineWidth = 4.4 * s;
+  ctx.strokeStyle = isLocked ? '#991b1b' : '#b4783c';
+  ctx.stroke();
+
+  // Wood grain / trim highlight
+  ctx.beginPath();
+  ctx.moveTo(hx, hy);
+  ctx.lineTo(tipX, tipY);
+  ctx.lineWidth = 1.8 * s;
+  ctx.strokeStyle = isLocked ? '#ef4444' : '#e2ab6f';
+  ctx.stroke();
+
+  // 4. Brass Lever Handle (placed at 80% along leaf length)
+  const handleFrac = 0.8;
+  const hxH = hx + Math.cos(angle) * (doorLen * handleFrac);
+  const hyH = hy + Math.sin(angle) * (doorLen * handleFrac);
+  const normA = angle + Math.PI / 2;
+  const handleW = 4.5 * s;
+
+  ctx.beginPath();
+  ctx.moveTo(hxH - Math.cos(normA) * handleW, hyH - Math.sin(normA) * handleW);
+  ctx.lineTo(hxH + Math.cos(normA) * handleW, hyH + Math.sin(normA) * handleW);
+  ctx.lineWidth = 2.4 * s;
+  ctx.strokeStyle = isLocked ? '#fca5a5' : '#f59e0b';
+  ctx.stroke();
+
+  // Glowing red lock indicator LED on handle when locked
+  if (isLocked) {
+    ctx.beginPath();
+    ctx.arc(hxH, hyH, 3.2 * s, 0, Math.PI * 2);
+    ctx.fillStyle = '#ef4444';
+    ctx.fill();
+    ctx.shadowColor = '#ef4444';
+    ctx.shadowBlur = 6 * s;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // 5. Heavy-duty Steel & Brass Hinge Pivot at door frame
+  ctx.beginPath();
+  ctx.arc(hx, hy, 3.8 * s, 0, Math.PI * 2);
+  ctx.fillStyle = '#0f172a';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(hx, hy, 1.8 * s, 0, Math.PI * 2);
+  ctx.fillStyle = '#f59e0b';
+  ctx.fill();
+
+  ctx.restore();
+}
+
 function drawZone(
   ctx: CanvasRenderingContext2D,
   z: Zone,
@@ -1205,6 +1395,8 @@ function drawZone(
   lockedZoneIds: Set<string> = new Set(),
   isCampus: boolean = false,
   rendered3D: boolean = false,
+  doorProgressMap?: Map<string, number>,
+  _now: number = 0,
 ): void {
   // If campus layout and it's the Grand Fountain Plaza, the open courtyard is already rendered
   if (isCampus && z.name.toLowerCase().includes('fountain')) {
@@ -1306,27 +1498,18 @@ function drawZone(
     const door = getDoorwayForZone(z);
     const dX = door.x * s;
     const dY = door.y * s;
-    const dW = Math.max(door.w * s, 12 * s);
-    const dH = Math.max(door.h * s, 12 * s);
+    const dW = Math.max(door.w * s, 16 * s);
+    const dH = Math.max(door.h * s, 16 * s);
+    const openProgress = doorProgressMap?.get(z.id) ?? (isLocked ? 0.0 : 1.0);
 
-    // Door mat / threshold
-    ctx.fillStyle = isLocked ? 'rgba(239, 68, 68, 0.28)' : 'rgba(0, 0, 0, 0.08)';
-    if (door.side === 'bottom') {
-      ctx.fillRect(dX, Y + H - 5 * s, dW, 8 * s);
-    } else if (door.side === 'top') {
-      ctx.fillRect(dX, Y - 3 * s, dW, 8 * s);
-    } else {
-      ctx.fillRect(dX - (door.side === 'left' ? 3 * s : 5 * s), dY, 8 * s, dH);
-    }
-
-    // Outer wall
+    // Outer architectural wall with open doorway gap
     ctx.lineWidth = 4 * s;
     ctx.strokeStyle = isCampus ? '#e2e8f0' : '#334155';
     ctx.lineCap = 'round';
     ctx.beginPath();
 
     // Top wall
-    if (door.side === 'top' && !isLocked) {
+    if (door.side === 'top') {
       ctx.moveTo(X, Y);
       ctx.lineTo(dX, Y);
       ctx.moveTo(dX + dW, Y);
@@ -1337,7 +1520,7 @@ function drawZone(
     }
 
     // Right wall
-    if (door.side === 'right' && !isLocked) {
+    if (door.side === 'right') {
       ctx.lineTo(X + W, dY);
       ctx.moveTo(X + W, dY + dH);
       ctx.lineTo(X + W, Y + H);
@@ -1346,7 +1529,7 @@ function drawZone(
     }
 
     // Bottom wall
-    if (door.side === 'bottom' && !isLocked) {
+    if (door.side === 'bottom') {
       ctx.lineTo(dX + dW, Y + H);
       ctx.moveTo(dX, Y + H);
       ctx.lineTo(X, Y + H);
@@ -1355,7 +1538,7 @@ function drawZone(
     }
 
     // Left wall
-    if (door.side === 'left' && !isLocked) {
+    if (door.side === 'left') {
       ctx.lineTo(X, dY + dH);
       ctx.moveTo(X, dY);
       ctx.lineTo(X, Y);
@@ -1364,25 +1547,8 @@ function drawZone(
     }
     ctx.stroke();
 
-    // Outer shadow border
-    ctx.lineWidth = 1 * s;
-    ctx.strokeStyle = isCampus ? '#94a3b8' : '#1e293b';
-    ctx.strokeRect(X - 2 * s, Y - 2 * s, W + 4 * s, H + 4 * s);
-
-    // If locked, draw the closed door barrier across the doorway
-    if (isLocked) {
-      ctx.beginPath();
-      ctx.lineWidth = 5 * s;
-      ctx.strokeStyle = '#ef4444'; // Red locked barrier
-      if (door.side === 'top' || door.side === 'bottom') {
-        ctx.moveTo(dX, dY);
-        ctx.lineTo(dX + dW, dY);
-      } else {
-        ctx.moveTo(dX, dY);
-        ctx.lineTo(dX, dY + dH);
-      }
-      ctx.stroke();
-    }
+    // Render animated architectural door (opens vertical into room, closes horizontal across doorway)
+    drawArchitecturalDoor(ctx, door, openProgress, isLocked, s);
   } else {
     // Open lounge zones
     ctx.lineWidth = 1.5 * s;
@@ -1498,16 +1664,39 @@ function drawFurniture(
     ctx.lineWidth = 1.5 * s;
     ctx.stroke();
 
-    // 2. Wall-mounted presentation screen / display
-    roundRect(ctx, cx - 44 * s, Y + 5 * s, 88 * s, 14 * s, 3 * s);
+    // 2. Interactive AV Presentation Display & Whiteboard (placed inside room on media credenza)
+    const screenW = Math.min(W * 0.42, 110 * s);
+    const screenH = 12 * s;
+    const screenY = Y + 28 * s; // Positioned safely inside the room, clearly not a doorway
+
+    // Rolling media credenza stand
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 1.5 * s;
+    ctx.beginPath();
+    ctx.moveTo(cx - 24 * s, screenY + screenH + 2 * s);
+    ctx.lineTo(cx + 24 * s, screenY + screenH + 2 * s);
+    ctx.stroke();
+
+    // Display bezel
+    roundRect(ctx, cx - screenW / 2, screenY, screenW, screenH, 2.5 * s);
     ctx.fillStyle = '#0f172a';
     ctx.fill();
-    ctx.strokeStyle = '#475569';
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1 * s;
     ctx.stroke();
-    // Power LED
-    ctx.fillStyle = '#22c55e';
+
+    // Active presentation charts / dashboard bars (cyan, indigo, emerald)
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(cx - screenW / 2 + 6 * s, screenY + 2.5 * s, 18 * s, 7 * s);
+    ctx.fillStyle = '#818cf8';
+    ctx.fillRect(cx - screenW / 2 + 28 * s, screenY + 3.5 * s, 14 * s, 6 * s);
+    ctx.fillStyle = '#34d399';
+    ctx.fillRect(cx - screenW / 2 + 46 * s, screenY + 2 * s, 22 * s, 7.5 * s);
+
+    // Active video conference LED
     ctx.beginPath();
-    ctx.arc(cx + 38 * s, Y + 12 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.arc(cx + screenW / 2 - 6 * s, screenY + screenH / 2, 2 * s, 0, Math.PI * 2);
+    ctx.fillStyle = '#22c55e';
     ctx.fill();
 
     // 3. Conference Table with center cable trough

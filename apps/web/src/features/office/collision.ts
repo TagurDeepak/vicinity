@@ -647,7 +647,15 @@ export function findPath(
         }
       }
 
-      const tentativeG = currentG + cost;
+      // Clearance cost penalty: cells close to walls get penalized so paths stay centered in corridors
+      let stepCost = cost;
+      if (collidesWithWalls(nx, ny, walls, AVATAR_RADIUS + 10)) {
+        stepCost += 4.0; // Wall proximity penalty
+      } else if (collidesWithWalls(nx, ny, walls, AVATAR_RADIUS + 22)) {
+        stepCost += 1.8;
+      }
+
+      const tentativeG = currentG + stepCost;
       if (tentativeG < (gScore.get(neighborKey) ?? Infinity)) {
         cameFrom.set(neighborKey, currentKey);
         gScore.set(neighborKey, tentativeG);
@@ -700,7 +708,7 @@ function smoothPath(
   while (i < waypoints.length) {
     let furthest = i;
     for (let j = waypoints.length - 1; j >= i; j--) {
-      if (hasLineOfSight(currentOrigin, waypoints[j]!, walls, AVATAR_RADIUS + 2, isCampus, zones)) {
+      if (hasLineOfSight(currentOrigin, waypoints[j]!, walls, AVATAR_RADIUS + 5, isCampus, zones)) {
         furthest = j;
         break;
       }

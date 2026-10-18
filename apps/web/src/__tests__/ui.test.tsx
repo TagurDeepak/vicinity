@@ -176,4 +176,35 @@ describe('obstacle-avoiding pathfinding', () => {
       currentOrigin = pt;
     }
   });
+
+  it('paths smoothly from Private Office to Focus Pod 1 and 2 with raised corner clearance', () => {
+    const defaultOfficeZones = [
+      { id: 'z1', name: 'Commons Lounge', type: 'lounge', geometry: { x: 80, y: 100, w: 460, h: 360 } },
+      { id: 'z2', name: 'Focus Pod 1', type: 'focus', geometry: { x: 80, y: 520, w: 220, h: 200 } },
+      { id: 'z3', name: 'Focus Pod 2', type: 'focus', geometry: { x: 320, y: 520, w: 220, h: 200 } },
+      { id: 'z4', name: 'Private Office', type: 'private', geometry: { x: 80, y: 760, w: 460, h: 180 } },
+      { id: 'z5', name: 'Meeting Room Alpha', type: 'meeting', geometry: { x: 600, y: 100, w: 460, h: 360 } },
+      { id: 'z6', name: 'Meeting Room Beta', type: 'meeting', geometry: { x: 600, y: 520, w: 460, h: 420 } },
+      { id: 'z7', name: 'The Boardroom', type: 'meeting', geometry: { x: 1120, y: 100, w: 420, h: 460 } },
+      { id: 'z8', name: 'Breakout Cafe', type: 'open', geometry: { x: 1120, y: 620, w: 420, h: 320 } },
+    ];
+    const startInPrivateOffice = { x: 250, y: 820 };
+    const goalInFocusPod2 = { x: 400, y: 600 };
+    const pathPod2 = findPath(startInPrivateOffice, goalInFocusPod2, defaultOfficeZones);
+    expect(pathPod2.length).toBeGreaterThan(1);
+
+    // Verify the path to Pod 2 raises into the corridor above y = 500 when turning around Focus Pod 2 corner (540, 520)
+    const pod2Corner = { x: 540, y: 520 };
+    for (const pt of pathPod2) {
+      const distToCorner = Math.hypot(pt.x - pod2Corner.x, pt.y - pod2Corner.y);
+      // Waypoint must not get trapped right on the sharp corner
+      if (pt.x >= 520 && pt.x <= 560 && pt.y >= 500 && pt.y <= 540) {
+        expect(distToCorner).toBeGreaterThanOrEqual(18);
+      }
+    }
+
+    const goalInFocusPod1 = { x: 180, y: 600 };
+    const pathPod1 = findPath(startInPrivateOffice, goalInFocusPod1, defaultOfficeZones);
+    expect(pathPod1.length).toBeGreaterThan(1);
+  });
 });
