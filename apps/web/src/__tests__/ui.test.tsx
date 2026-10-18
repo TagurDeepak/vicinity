@@ -147,6 +147,20 @@ describe('obstacle-avoiding pathfinding', () => {
         origin = pt;
       }
     }
+
+    const pathAlphaToFountain = findPath({ x: 270, y: 430 }, plazaCenter, campusGardenZones);
+    expect(pathAlphaToFountain.length).toBeGreaterThan(0);
+    // West entrance waypoint turning toward Grand Plaza should stay safely low (y >= 540) to avoid Meeting Room Alpha wall at y = 520
+    const alphaEntranceWaypoint = pathAlphaToFountain.find((pt: { x: number; y: number }) => pt.y > 500);
+    expect(alphaEntranceWaypoint).toBeDefined();
+    expect(alphaEntranceWaypoint!.y).toBeGreaterThanOrEqual(540);
+
+    const pathBetaToFountain = findPath({ x: 1330, y: 430 }, plazaCenter, campusGardenZones);
+    expect(pathBetaToFountain.length).toBeGreaterThan(0);
+    // East entrance waypoint turning toward Grand Plaza should stay safely low (y >= 540) to avoid Meeting Room Beta wall at y = 520
+    const betaEntranceWaypoint = pathBetaToFountain.find((pt: { x: number; y: number }) => pt.y > 500);
+    expect(betaEntranceWaypoint).toBeDefined();
+    expect(betaEntranceWaypoint!.y).toBeGreaterThanOrEqual(540);
   });
 
   it('finds path from Breakout Cafe to Private Office avoiding Meeting Room Beta', () => {

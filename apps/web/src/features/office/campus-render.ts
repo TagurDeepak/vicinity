@@ -169,55 +169,55 @@ export function drawCampusWalkways(ctx: CanvasRenderingContext2D, s: number): vo
   ctx.lineWidth = 1.5 * s;
 
   // Outer Perimeter Path Loop (extended to connect to Coworking rooms)
-  ctx.fillRect(280 * s, 290 * s, 1040 * s, 44 * s);
-  ctx.strokeRect(280 * s, 290 * s, 1040 * s, 44 * s);
+  ctx.fillRect(275 * s, 286 * s, 1050 * s, 52 * s);
+  ctx.strokeRect(275 * s, 286 * s, 1050 * s, 52 * s);
 
-  ctx.fillRect(280 * s, 766 * s, 1040 * s, 44 * s);
-  ctx.strokeRect(280 * s, 766 * s, 1040 * s, 44 * s);
+  ctx.fillRect(275 * s, 762 * s, 1050 * s, 52 * s);
+  ctx.strokeRect(275 * s, 762 * s, 1050 * s, 52 * s);
 
-  ctx.fillRect(480 * s, 290 * s, 44 * s, 520 * s);
-  ctx.strokeRect(480 * s, 290 * s, 44 * s, 520 * s);
+  ctx.fillRect(476 * s, 286 * s, 52 * s, 528 * s);
+  ctx.strokeRect(476 * s, 286 * s, 52 * s, 528 * s);
 
-  ctx.fillRect(1076 * s, 290 * s, 44 * s, 520 * s);
-  ctx.strokeRect(1076 * s, 290 * s, 44 * s, 520 * s);
+  ctx.fillRect(1072 * s, 286 * s, 52 * s, 528 * s);
+  ctx.strokeRect(1072 * s, 286 * s, 52 * s, 528 * s);
 
   // Connector branches into Meeting Rooms
-  ctx.fillRect(396 * s, 388 * s, 86 * s, 84 * s);
-  ctx.strokeRect(396 * s, 388 * s, 86 * s, 84 * s);
-  ctx.fillRect(396 * s, 628 * s, 86 * s, 84 * s);
-  ctx.strokeRect(396 * s, 628 * s, 86 * s, 84 * s);
-  ctx.fillRect(1116 * s, 388 * s, 86 * s, 84 * s);
-  ctx.strokeRect(1116 * s, 388 * s, 86 * s, 84 * s);
-  ctx.fillRect(1116 * s, 628 * s, 86 * s, 84 * s);
-  ctx.strokeRect(1116 * s, 628 * s, 86 * s, 84 * s);
+  ctx.fillRect(395 * s, 388 * s, 85 * s, 84 * s);
+  ctx.strokeRect(395 * s, 388 * s, 85 * s, 84 * s);
+  ctx.fillRect(395 * s, 628 * s, 85 * s, 84 * s);
+  ctx.strokeRect(395 * s, 628 * s, 85 * s, 84 * s);
+  ctx.fillRect(1120 * s, 388 * s, 85 * s, 84 * s);
+  ctx.strokeRect(1120 * s, 388 * s, 85 * s, 84 * s);
+  ctx.fillRect(1120 * s, 628 * s, 85 * s, 84 * s);
+  ctx.strokeRect(1120 * s, 628 * s, 85 * s, 84 * s);
 
   // Connector branches into Focus Pods
-  ctx.fillRect(555 * s, 255 * s, 90 * s, 40 * s);
-  ctx.strokeRect(555 * s, 255 * s, 90 * s, 40 * s);
-  ctx.fillRect(945 * s, 255 * s, 90 * s, 40 * s);
-  ctx.strokeRect(945 * s, 255 * s, 90 * s, 40 * s);
-  ctx.fillRect(555 * s, 805 * s, 90 * s, 40 * s);
-  ctx.strokeRect(555 * s, 805 * s, 90 * s, 40 * s);
-  ctx.fillRect(945 * s, 805 * s, 90 * s, 40 * s);
-  ctx.strokeRect(945 * s, 805 * s, 90 * s, 40 * s);
+  ctx.fillRect(550 * s, 255 * s, 100 * s, 40 * s);
+  ctx.strokeRect(550 * s, 255 * s, 100 * s, 40 * s);
+  ctx.fillRect(940 * s, 255 * s, 100 * s, 40 * s);
+  ctx.strokeRect(940 * s, 255 * s, 100 * s, 40 * s);
+  ctx.fillRect(550 * s, 805 * s, 100 * s, 40 * s);
+  ctx.strokeRect(550 * s, 805 * s, 100 * s, 40 * s);
+  ctx.fillRect(940 * s, 805 * s, 100 * s, 40 * s);
+  ctx.strokeRect(940 * s, 805 * s, 100 * s, 40 * s);
 
-  // Connector branches to Outdoor Garden Dining Areas
-  ctx.fillRect(180 * s, 535 * s, 302 * s, 55 * s);
-  ctx.fillRect(1118 * s, 535 * s, 290 * s, 55 * s);
-  ctx.fillRect(785 * s, 25 * s, 40 * s, 267 * s);
-  ctx.fillRect(785 * s, 808 * s, 40 * s, 265 * s);
+  // Connector branches to Outdoor Garden Dining Areas (aligned with y: 526..574, center y = 550)
+  ctx.fillRect(175 * s, 526 * s, 305 * s, 48 * s);
+  ctx.fillRect(1120 * s, 526 * s, 295 * s, 48 * s);
+  ctx.fillRect(780 * s, 20 * s, 48 * s, 275 * s);
+  ctx.fillRect(780 * s, 805 * s, 48 * s, 275 * s);
 
   // Central Plaza (Grand Fountain Square)
   ctx.fillStyle = '#eceff1';
   ctx.fillRect(590 * s, 375 * s, 420 * s, 350 * s);
   ctx.strokeRect(590 * s, 375 * s, 420 * s, 350 * s);
 
-  // Entrances into plaza
+  // Entrances into plaza (seamlessly connecting corridors to Grand Plaza at centerlines)
   ctx.fillStyle = '#e2e8f0';
-  ctx.fillRect(778 * s, 334 * s, 44 * s, 42 * s);
-  ctx.fillRect(778 * s, 724 * s, 44 * s, 43 * s);
-  ctx.fillRect(524 * s, 528 * s, 67 * s, 44 * s);
-  ctx.fillRect(1009 * s, 528 * s, 68 * s, 44 * s);
+  ctx.fillRect(770 * s, 326 * s, 60 * s, 52 * s);
+  ctx.fillRect(770 * s, 722 * s, 60 * s, 52 * s);
+  ctx.fillRect(476 * s, 526 * s, 120 * s, 48 * s);
+  ctx.fillRect(1004 * s, 526 * s, 120 * s, 48 * s);
 
   ctx.restore();
 }

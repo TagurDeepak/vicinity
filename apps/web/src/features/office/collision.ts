@@ -302,15 +302,15 @@ export const CAMPUS_PAVED_WALKWAYS: Rect[] = [
   { x: 550, y: 805, w: 100, h: 40 },  // Focus Pod SW
   { x: 940, y: 805, w: 100, h: 40 },  // Focus Pod SE
 
-  // Entrances into Grand Fountain Plaza
-  { x: 770, y: 330, w: 60, h: 52 },   // North entrance
-  { x: 770, y: 720, w: 60, h: 52 },   // South entrance
-  { x: 520, y: 520, w: 75, h: 60 },   // West entrance
-  { x: 1005, y: 520, w: 75, h: 60 },  // East entrance
+  // Entrances into Grand Fountain Plaza (aligned safely at centerline y = 550, 30px below Alpha/Beta bottom walls)
+  { x: 770, y: 286, w: 60, h: 96 },   // North entrance (centerline x = 800)
+  { x: 770, y: 720, w: 60, h: 96 },   // South entrance (centerline x = 800)
+  { x: 476, y: 526, w: 120, h: 48 },  // West entrance (y: 526..574, centerline y = 550, 30px clear from y=520 wall)
+  { x: 1004, y: 526, w: 120, h: 48 }, // East entrance (y: 526..574, centerline y = 550, 30px clear from y=520 wall)
 
-  // Outdoor dining patio areas & connector paths
-  { x: 175, y: 525, w: 310, h: 80 },  // West picnic table & patio connector
-  { x: 1115, y: 525, w: 300, h: 80 }, // East picnic table & patio connector
+  // Outdoor dining patio areas & connector paths (aligned with crossroad at y = 550)
+  { x: 175, y: 526, w: 305, h: 48 },  // West picnic table & patio connector
+  { x: 1120, y: 526, w: 295, h: 48 }, // East picnic table & patio connector
   { x: 780, y: 20, w: 48, h: 275 },   // North patio path
   { x: 740, y: 15, w: 120, h: 75 },   // North patio seating area
   { x: 780, y: 805, w: 48, h: 275 },  // South patio path
@@ -538,8 +538,103 @@ export function hasLineOfSight(
     if (!isPointAllowed({ x, y })) {
       return false;
     }
+
+    if (isCampus) {
+      // Inside open courtyard (Grand Plaza) or start/goal rooms, straight lines across open space are allowed.
+      // Along outdoor corridors, enforce corner margin so paths do not cut 90-degree corners diagonally into grass.
+      const inOpenPlazaOrRoom =
+        (x >= 590 && x <= 1010 && y >= 375 && y <= 725) ||
+        zones.some((z) => {
+          const g = z.geometry;
+          return (
+            x >= g.x &&
+            x <= g.x + g.w &&
+            y >= g.y &&
+            y <= g.y + g.h &&
+            (z.id === startZoneId || z.id === goalZoneId || !isZoneEnclosed(z))
+          );
+        });
+
+      if (!inOpenPlazaOrRoom) {
+        const cornerMargin = 11;
+        if (
+          !isPointAllowed({ x: x - cornerMargin, y }) ||
+          !isPointAllowed({ x: x + cornerMargin, y }) ||
+          !isPointAllowed({ x, y: y - cornerMargin }) ||
+          !isPointAllowed({ x, y: y + cornerMargin })
+        ) {
+          return false;
+        }
+      }
+    }
   }
   return true;
+}
+
+/**
+ * Calculates a cost penalty for points that deviate from corridor centerlines.
+ * This guides A* to find routes that run directly down the middle of roads.
+ */
+function getRoadCenteringPenalty(x: number, y: number, isCampus: boolean): number {
+  if (!isCampus) return 0;
+
+  // If inside the wide open Grand Fountain Plaza or inside rooms, no road centering penalty
+  if (x >= 590 && x <= 1010 && y >= 375 && y <= 725) return 0;
+
+  let minOffset = Infinity;
+
+  // Left vertical corridor: centerline x = 502
+  if (x >= 476 && x <= 528 && y >= 286 && y <= 814) {
+    minOffset = Math.min(minOffset, Math.abs(x - 502));
+  }
+
+  // Right vertical corridor: centerline x = 1098
+  if (x >= 1072 && x <= 1124 && y >= 286 && y <= 814) {
+    minOffset = Math.min(minOffset, Math.abs(x - 1098));
+  }
+
+  // Top perimeter horizontal corridor: centerline y = 312
+  if (y >= 286 && y <= 338 && x >= 275 && x <= 1325) {
+    minOffset = Math.min(minOffset, Math.abs(y - 312));
+  }
+
+  // Bottom perimeter horizontal corridor: centerline y = 788
+  if (y >= 762 && y <= 814 && x >= 275 && x <= 1325) {
+    minOffset = Math.min(minOffset, Math.abs(y - 788));
+  }
+
+  // West & East entrances / crossroad: centerline y = 550
+  if (y >= 526 && y <= 574 && ((x >= 175 && x <= 596) || (x >= 1004 && x <= 1415))) {
+    minOffset = Math.min(minOffset, Math.abs(y - 550));
+  }
+
+  // North & South entrances: centerline x = 800
+  if (x >= 770 && x <= 830 && ((y >= 20 && y <= 380) || (y >= 720 && y <= 1080))) {
+    minOffset = Math.min(minOffset, Math.abs(x - 800));
+  }
+
+  // Meeting Room branches:
+  // Alpha (center y = 430), Gamma (center y = 670)
+  if (x >= 395 && x <= 485) {
+    if (y >= 388 && y <= 472) minOffset = Math.min(minOffset, Math.abs(y - 430));
+    if (y >= 628 && y <= 712) minOffset = Math.min(minOffset, Math.abs(y - 670));
+  }
+  // Beta (center y = 430), Delta (center y = 670)
+  if (x >= 1115 && x <= 1205) {
+    if (y >= 388 && y <= 472) minOffset = Math.min(minOffset, Math.abs(y - 430));
+    if (y >= 628 && y <= 712) minOffset = Math.min(minOffset, Math.abs(y - 670));
+  }
+
+  // Focus Pod connectors:
+  if (x >= 550 && x <= 650 && ((y >= 255 && y <= 295) || (y >= 805 && y <= 845))) {
+    minOffset = Math.min(minOffset, Math.abs(x - 605));
+  }
+  if (x >= 940 && x <= 1040 && ((y >= 255 && y <= 295) || (y >= 805 && y <= 845))) {
+    minOffset = Math.min(minOffset, Math.abs(x - 995));
+  }
+
+  if (minOffset === Infinity) return 0;
+  return minOffset * 0.35;
 }
 
 /**
@@ -781,6 +876,7 @@ export function findPath(
       } else if (collidesWithWalls(nx, ny, walls, AVATAR_RADIUS + 20)) {
         stepCost += 1.5;
       }
+      stepCost += getRoadCenteringPenalty(nx, ny, isCampus);
 
       const tentativeG = currentG + stepCost;
       if (tentativeG < (gScore.get(neighborKey) ?? Infinity)) {

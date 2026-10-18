@@ -1374,14 +1374,14 @@ function drawArchitecturalDoor(
 /**
  * Draws a modern architectural sliding pocket/track door.
  *
- * Usually (unlocked): The frosted glass door leaf is SLID OPEN into the wall pocket,
- * leaving the doorway 100% clear with zero intrusion into tables or furniture.
+ * Usually (unlocked): The frosted glass door leaf is retracted into the wall pocket jamb,
+ * leaving the doorway 100% clear with zero intrusion into tables, furniture, walls, or corridors.
  * When locked: The door leaf glides closed across the doorway opening, sealed with a radiant red lock status LED.
  */
 function drawSlidingDoor(
   ctx: CanvasRenderingContext2D,
   door: Doorway,
-  openProgress: number, // 0.0 = closed/locked across doorway, 1.0 = slid open into wall pocket
+  openProgress: number, // 0.0 = closed/locked across doorway, 1.0 = retracted into pocket jamb
   isLocked: boolean,
   s: number,
 ): void {
@@ -1393,18 +1393,16 @@ function drawSlidingDoor(
 
   ctx.save();
 
-  // 1. Sleek guide track along wall and doorway opening
+  // 1. Sleek guide track strictly contained within doorway opening frame
   ctx.strokeStyle = isLocked ? 'rgba(239, 68, 68, 0.45)' : 'rgba(148, 163, 184, 0.5)';
   ctx.lineWidth = 1.8 * s;
   ctx.beginPath();
   if (isHorizontal) {
-    // Track spans the doorway and pocket along the horizontal wall
-    ctx.moveTo(dX - 2 * s, dY);
-    ctx.lineTo(dX + dW * 1.95, dY);
+    ctx.moveTo(dX, dY);
+    ctx.lineTo(dX + dW, dY);
   } else {
-    // Track spans the doorway and pocket along the vertical wall
-    ctx.moveTo(dX, dY - 2 * s);
-    ctx.lineTo(dX, dY + dH * 1.95);
+    ctx.moveTo(dX, dY);
+    ctx.lineTo(dX, dY + dH);
   }
   ctx.stroke();
 
@@ -1416,85 +1414,89 @@ function drawSlidingDoor(
     ctx.fillRect(dX - 2.5 * s, dY, 5 * s, dH);
   }
 
-  // 3. Wall Pocket / Track End Stoppers (sleek dark anodized steel)
+  // 3. Wall Pocket Jambs & Track End Stoppers (strictly within opening frame)
   ctx.fillStyle = '#0f172a';
   if (isHorizontal) {
-    roundRect(ctx, dX - 3 * s, dY - 4 * s, 4 * s, 8 * s, 1.5 * s);
+    roundRect(ctx, dX, dY - 4 * s, 4 * s, 8 * s, 1.5 * s);
     ctx.fill();
-    roundRect(ctx, dX + dW * 1.95 - 2 * s, dY - 4 * s, 4 * s, 8 * s, 1.5 * s);
+    roundRect(ctx, dX + dW - 4 * s, dY - 4 * s, 4 * s, 8 * s, 1.5 * s);
     ctx.fill();
   } else {
-    roundRect(ctx, dX - 4 * s, dY - 3 * s, 8 * s, 4 * s, 1.5 * s);
+    roundRect(ctx, dX - 4 * s, dY, 8 * s, 4 * s, 1.5 * s);
     ctx.fill();
-    roundRect(ctx, dX - 4 * s, dY + dH * 1.95 - 2 * s, 8 * s, 4 * s, 1.5 * s);
+    roundRect(ctx, dX - 4 * s, dY + dH - 4 * s, 8 * s, 4 * s, 1.5 * s);
     ctx.fill();
   }
 
-  // 4. Sliding Glass Panel
-  // When closed (openProgress = 0): leaf is at [dX, dX + dW] covering opening
-  // When open (openProgress = 1): leaf is slid into pocket at [dX + dW * 0.95, ...]
-  const slideOffset = openProgress * (dW * 0.95);
-  const slideOffsetY = openProgress * (dH * 0.95);
+  // 4. Telescoping Sliding Door Leaf: Retracts into jamb when open, covers entrance when closed
+  // When closed (openProgress = 0): leaf spans 100% of the opening [dX, dX + dW]
+  // When open (openProgress = 1): leaf retracts completely into the pocket jamb, zero protrusion
+  const closedFrac = Math.max(0, Math.min(1, 1 - openProgress));
+  if (closedFrac > 0.04) {
+    const totalLen = isHorizontal ? dW : dH;
+    const curLen = totalLen * closedFrac;
 
-  const panelX = isHorizontal ? dX + slideOffset : dX - 2.5 * s;
-  const panelY = isHorizontal ? dY - 2.5 * s : dY + slideOffsetY;
-  const panelW = isHorizontal ? dW : 5 * s;
-  const panelH = isHorizontal ? 5 * s : dH;
+    const panelX = isHorizontal ? dX : dX - 2.5 * s;
+    const panelY = isHorizontal ? dY - 2.5 * s : dY;
+    const panelW = isHorizontal ? curLen : 5 * s;
+    const panelH = isHorizontal ? 5 * s : curLen;
 
-  // Drop shadow
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.20)';
-  roundRect(ctx, panelX + 1 * s, panelY + 1.5 * s, panelW, panelH, 2 * s);
-  ctx.fill();
+    // Drop shadow
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.20)';
+    roundRect(ctx, panelX + 1 * s, panelY + 1.5 * s, panelW, panelH, 2 * s);
+    ctx.fill();
 
-  // Panel slab: Frosted architectural glass with satin metal frame
-  ctx.fillStyle = isLocked
-    ? 'rgba(239, 68, 68, 0.45)'
-    : 'rgba(241, 245, 249, 0.92)';
-  roundRect(ctx, panelX, panelY, panelW, panelH, 2 * s);
-  ctx.fill();
+    // Panel slab: Frosted architectural glass with satin metal frame
+    ctx.fillStyle = isLocked
+      ? 'rgba(239, 68, 68, 0.45)'
+      : 'rgba(241, 245, 249, 0.92)';
+    roundRect(ctx, panelX, panelY, panelW, panelH, 2 * s);
+    ctx.fill();
 
-  // Perimeter metallic frame
-  ctx.strokeStyle = isLocked ? '#dc2626' : '#64748b';
-  ctx.lineWidth = 1.6 * s;
-  ctx.stroke();
-
-  // Glass refraction highlight streak along center
-  ctx.strokeStyle = isLocked ? 'rgba(254, 202, 202, 0.6)' : 'rgba(255, 255, 255, 0.85)';
-  ctx.lineWidth = 1 * s;
-  ctx.beginPath();
-  if (isHorizontal) {
-    ctx.moveTo(panelX + 4 * s, panelY + panelH / 2);
-    ctx.lineTo(panelX + panelW - 4 * s, panelY + panelH / 2);
-  } else {
-    ctx.moveTo(panelX + panelW / 2, panelY + 4 * s);
-    ctx.lineTo(panelX + panelW / 2, panelY + panelH - 4 * s);
-  }
-  ctx.stroke();
-
-  // 5. Sleek Flush-Pull Handle (stainless steel bar in the door leaf)
-  const handleFrac = 0.5;
-  const hx = isHorizontal ? panelX + panelW * handleFrac : panelX + panelW / 2;
-  const hy = isHorizontal ? panelY + panelH / 2 : panelY + panelH * handleFrac;
-
-  ctx.fillStyle = isLocked ? '#ef4444' : '#0f172a';
-  ctx.beginPath();
-  if (isHorizontal) {
-    roundRect(ctx, hx - 5 * s, hy - 1.2 * s, 10 * s, 2.4 * s, 1 * s);
-  } else {
-    roundRect(ctx, hx - 1.2 * s, hy - 5 * s, 2.4 * s, 10 * s, 1 * s);
-  }
-  ctx.fill();
-
-  // 6. Modern Electronic Lock Status LED on handle
-  ctx.beginPath();
-  ctx.arc(hx, hy, 2.4 * s, 0, Math.PI * 2);
-  ctx.fillStyle = isLocked ? '#ef4444' : '#10b981';
-  ctx.fill();
-  if (isLocked) {
-    ctx.shadowColor = '#ef4444';
-    ctx.shadowBlur = 6 * s;
+    // Perimeter metallic frame
+    ctx.strokeStyle = isLocked ? '#dc2626' : '#64748b';
+    ctx.lineWidth = 1.6 * s;
     ctx.stroke();
-    ctx.shadowBlur = 0;
+
+    // Glass refraction highlight streak along center
+    if (curLen > 12 * s) {
+      ctx.strokeStyle = isLocked ? 'rgba(254, 202, 202, 0.6)' : 'rgba(255, 255, 255, 0.85)';
+      ctx.lineWidth = 1 * s;
+      ctx.beginPath();
+      if (isHorizontal) {
+        ctx.moveTo(panelX + 4 * s, panelY + panelH / 2);
+        ctx.lineTo(panelX + panelW - 4 * s, panelY + panelH / 2);
+      } else {
+        ctx.moveTo(panelX + panelW / 2, panelY + 4 * s);
+        ctx.lineTo(panelX + panelW / 2, panelY + panelH - 4 * s);
+      }
+      ctx.stroke();
+    }
+
+    // 5. Sleek Flush-Pull Handle positioned on the leading edge of retracting panel
+    const hx = isHorizontal ? panelX + Math.max(6 * s, panelW - 8 * s) : panelX + panelW / 2;
+    const hy = isHorizontal ? panelY + panelH / 2 : panelY + Math.max(6 * s, panelH - 8 * s);
+
+    ctx.fillStyle = isLocked ? '#ef4444' : '#0f172a';
+    ctx.beginPath();
+    if (isHorizontal) {
+      roundRect(ctx, hx - 4 * s, hy - 1.2 * s, 8 * s, 2.4 * s, 1 * s);
+    } else {
+      roundRect(ctx, hx - 1.2 * s, hy - 4 * s, 2.4 * s, 8 * s, 1 * s);
+    }
+    ctx.fill();
+
+    // 6. Modern Electronic Lock Status LED
+    ctx.beginPath();
+    ctx.arc(hx, hy, 2.2 * s, 0, Math.PI * 2);
+    ctx.fillStyle = isLocked ? '#ef4444' : '#10b981';
+    ctx.fill();
+    if (isLocked) {
+      ctx.shadowColor = '#ef4444';
+      ctx.shadowBlur = 6 * s;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
   }
 
   ctx.restore();
