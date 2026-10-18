@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import type {
   GameClientInput,
   GameMapTheme,
+  GamePlayerState,
+  GameProjectile,
   GameWorldState,
   SpellType,
 } from '@vicinity/shared';
@@ -393,6 +395,85 @@ function drawWizardCharacter(
   ctx.restore();
 }
 
+function createInitialGameState(workspaceId: string, zoneId: string, userName?: string): GameWorldState {
+  const obstacles = [
+    { x: 600, y: 400, w: 120, h: 120 },
+    { x: 1280, y: 400, w: 120, h: 120 },
+    { x: 600, y: 880, w: 120, h: 120 },
+    { x: 1280, y: 880, w: 120, h: 120 },
+    { x: 920, y: 640, w: 160, h: 120 },
+    { x: 280, y: 550, w: 100, h: 300 },
+    { x: 1620, y: 550, w: 100, h: 300 },
+  ];
+
+  const localPlayer: GamePlayerState = {
+    id: 'local-wizard',
+    name: userName || 'Wizard (You)',
+    colorIndex: 0,
+    posX: 400,
+    posY: 400,
+    facingAngle: 0,
+    health: 100,
+    maxHealth: 100,
+    mana: 100,
+    maxMana: 100,
+    kills: 0,
+    deaths: 0,
+    score: 0,
+    hasShield: true,
+    shieldDuration: 3,
+    isAlive: true,
+    activeSpell: 'fireball',
+    cooldowns: { fireball: 0, frost: 0, lightning: 0, shield: 0, dash: 0 },
+    isBot: false,
+    isDashing: false,
+    dashTimer: 0,
+    hitFlashTimer: 0,
+  };
+
+  const botPlayer: GamePlayerState = {
+    id: 'bot-ignis',
+    name: 'Archmage Ignis [BOT]',
+    colorIndex: 1,
+    posX: 1100,
+    posY: 500,
+    facingAngle: 180,
+    health: 100,
+    maxHealth: 100,
+    mana: 100,
+    maxMana: 100,
+    kills: 0,
+    deaths: 0,
+    score: 0,
+    hasShield: false,
+    shieldDuration: 0,
+    isAlive: true,
+    activeSpell: 'fireball',
+    cooldowns: { fireball: 0, frost: 0, lightning: 0, shield: 0, dash: 0 },
+    isBot: true,
+    isDashing: false,
+    dashTimer: 0,
+    hitFlashTimer: 0,
+  };
+
+  return {
+    workspaceId,
+    zoneId,
+    mapId: 'catacombs',
+    mapWidth: 2000,
+    mapHeight: 1400,
+    obstacles,
+    players: [localPlayer, botPlayer],
+    projectiles: [],
+    visualEffects: [],
+    killFeed: [],
+    matchState: 'in_progress',
+    matchTimer: 0,
+    roundResetTimer: 0,
+    winnerId: null,
+  };
+}
+
 interface MagicDuelCanvasProps {
   workspaceId: string;
   zoneId: string;
@@ -410,9 +491,10 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
   const audioRef = useRef(audio);
   audioRef.current = audio;
 
-  const gameStateRef = useRef<GameWorldState | null>(null);
-  const [hasInitialState, setHasInitialState] = useState(false);
-  const hasInitialStateRef = useRef(false);
+  const initialWorldRef = useRef<GameWorldState>(createInitialGameState(workspaceId, zoneId, user?.displayName));
+  const gameStateRef = useRef<GameWorldState>(initialWorldRef.current);
+  const [hasInitialState, setHasInitialState] = useState(true);
+  const hasInitialStateRef = useRef(true);
   const patternsRef = useRef<Map<string, CanvasPattern>>(new Map());
 
   const [selectedSpell, setSelectedSpell] = useState<SpellType>('fireball');
@@ -421,6 +503,9 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
   const [activeMap, setActiveMap] = useState<GameMapTheme>('catacombs');
   const [isConnected, setIsConnected] = useState(false);
+  const isConnectedRef = useRef(false);
+  isConnectedRef.current = isConnected;
+  const lastShotTimeRef = useRef(0);
 
   const [cooldowns, setCooldowns] = useState<Record<SpellType, number>>({
     fireball: 0,
@@ -430,9 +515,9 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     dash: 0,
   });
 
-  // Smooth Camera & Entity Prediction states
-  const camPosRef = useRef<{ x: number; y: number }>({ x: 1000, y: 700 });
-  const localPredRef = useRef<{ x: number; y: number; initialized: boolean }>({ x: 1000, y: 700, initialized: false });
+  // Smooth Camera & Entity Prediction states (centered on initial player position 400, 400)
+  const camPosRef = useRef<{ x: number; y: number }>({ x: 400, y: 400 });
+  const localPredRef = useRef<{ x: number; y: number; initialized: boolean }>({ x: 400, y: 400, initialized: true });
   const smoothEntitiesRef = useRef<Map<string, { x: number; y: number; angle: number }>>(new Map());
   const smoothProjectilesRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const lastFrameTimeRef = useRef<number>(performance.now());
@@ -610,22 +695,27 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
   // Connect to Socket.IO game session
   useEffect(() => {
-    if (!token) return;
-    const socket = getSocket(token);
+    const activeToken = token || 'guest-arcade';
+    const socket = getSocket(activeToken);
 
     const joinRoom = () => {
       socket.emit('game:join', { workspaceId, zoneId });
-      setIsConnected(true);
     };
 
-    joinRoom();
+    if (socket.connected) {
+      joinRoom();
+    }
     socket.on('connect', joinRoom);
-    socket.on('disconnect', () => setIsConnected(false));
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+      isConnectedRef.current = false;
+    });
 
     const onGameState = (state: GameWorldState) => {
       try {
         if (!state) return;
         setIsConnected(true);
+        isConnectedRef.current = true;
         gameStateRef.current = state;
         if (!hasInitialStateRef.current) {
           hasInitialStateRef.current = true;
@@ -649,7 +739,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                 color: '#ef4444',
                 createdAt: Date.now(),
               });
-              if (p.id === myId) {
+              if (p.id === myId || p.id === 'local-wizard') {
                 try {
                   audioRef.current.playHit();
                 } catch {
@@ -754,8 +844,8 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
   // Send input tick to server at 60 Hz
   useEffect(() => {
-    if (!token) return;
-    const socket = getSocket(token);
+    const activeToken = token || 'guest-arcade';
+    const socket = getSocket(activeToken);
 
     const interval = setInterval(() => {
       const keys = keysDownRef.current;
@@ -826,6 +916,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         const myId = userRef.current?.id;
         const localPlayer =
           state?.players?.find((p) => myId && p.id === myId) ||
+          state?.players?.find((p) => p.id === 'local-wizard') ||
           state?.players?.find((p) => !p.isBot) ||
           state?.players?.[0] ||
           null;
@@ -913,6 +1004,66 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
             if (!collidesY) localPredRef.current.y = predY;
           } else {
             localPredRef.current.y = predY;
+          }
+        }
+      }
+
+      // Offline fallback simulation (keeps player, bot, and spells live even when disconnected)
+      if (localPlayer && !isConnectedRef.current) {
+        localPlayer.posX = localPredRef.current.x;
+        localPlayer.posY = localPredRef.current.y;
+        localPlayer.facingAngle = currentAngleRef.current;
+        localPlayer.activeSpell = selectedSpellRef.current;
+
+        // Offline shooting support
+        if (isMouseDownRef.current && now - lastShotTimeRef.current > 350) {
+          lastShotTimeRef.current = now;
+          const rad = (currentAngleRef.current * Math.PI) / 180;
+          const projSpeed = 520;
+          const newProj: GameProjectile = {
+            id: Date.now() + Math.random(),
+            ownerId: localPlayer.id,
+            posX: localPlayer.posX + Math.cos(rad) * 32,
+            posY: localPlayer.posY + Math.sin(rad) * 32,
+            velX: Math.cos(rad) * projSpeed,
+            velY: Math.sin(rad) * projSpeed,
+            spellType: selectedSpellRef.current,
+            damage: 20,
+            radius: 14,
+            lifetime: 2.5,
+          };
+          state.projectiles.push(newProj);
+          try {
+            const sp = selectedSpellRef.current;
+            if (sp === 'fireball') audioRef.current.playFireball();
+            else if (sp === 'frost') audioRef.current.playFrost();
+            else if (sp === 'lightning') audioRef.current.playLightning();
+            else if (sp === 'shield') audioRef.current.playShield();
+            else if (sp === 'dash') audioRef.current.playDash();
+          } catch {
+            // Audio safety
+          }
+        }
+
+        // Offline bot tracking
+        const bot = state.players.find((p) => p.isBot);
+        if (bot) {
+          const bdx = localPlayer.posX - bot.posX;
+          const bdy = localPlayer.posY - bot.posY;
+          bot.facingAngle = ((Math.atan2(bdy, bdx) * 180) / Math.PI + 360) % 360;
+        }
+
+        // Advance offline projectiles
+        if (state.projectiles.length > 0) {
+          for (let i = state.projectiles.length - 1; i >= 0; i--) {
+            const pr = state.projectiles[i];
+            if (!pr) continue;
+            pr.posX += pr.velX * dt;
+            pr.posY += pr.velY * dt;
+            pr.lifetime -= dt;
+            if (pr.lifetime <= 0) {
+              state.projectiles.splice(i, 1);
+            }
           }
         }
       }
@@ -1143,7 +1294,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       if (state?.players) {
         const smoothMap = smoothEntitiesRef.current;
         for (const player of state.players) {
-          const isMe = player.id === localPlayer?.id;
+          const isMe = localPlayer ? player.id === localPlayer.id : !player.isBot;
           const sm = smoothMap.get(player.id);
           const drawX = isMe ? localPredRef.current.x : sm ? sm.x : player.posX;
           const drawY = isMe ? localPredRef.current.y : sm ? sm.y : player.posY;

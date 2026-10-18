@@ -11,7 +11,17 @@ let socket: VicinitySocket | null = null;
  * user's access token. Reconnects are handled by socket.io automatically.
  */
 export function getSocket(token: string): VicinitySocket {
-  if (socket) return socket;
+  if (socket) {
+    if (socket.auth && typeof socket.auth === 'object') {
+      (socket.auth as { token: string }).token = token;
+    } else {
+      socket.auth = { token };
+    }
+    if (socket.disconnected) {
+      socket.connect();
+    }
+    return socket;
+  }
   socket = io(config.wsUrl, {
     auth: { token },
     transports: ['websocket'],
