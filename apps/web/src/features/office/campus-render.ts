@@ -182,16 +182,24 @@ export function drawCampusWalkways(ctx: CanvasRenderingContext2D, s: number): vo
   ctx.strokeRect(1076 * s, 290 * s, 44 * s, 520 * s);
 
   // Connector branches into Meeting Rooms
-  ctx.fillRect(400 * s, 395 * s, 82 * s, 44 * s);
-  ctx.fillRect(400 * s, 635 * s, 82 * s, 44 * s);
-  ctx.fillRect(1118 * s, 395 * s, 84 * s, 44 * s);
-  ctx.fillRect(1118 * s, 635 * s, 84 * s, 44 * s);
+  ctx.fillRect(396 * s, 388 * s, 86 * s, 84 * s);
+  ctx.strokeRect(396 * s, 388 * s, 86 * s, 84 * s);
+  ctx.fillRect(396 * s, 628 * s, 86 * s, 84 * s);
+  ctx.strokeRect(396 * s, 628 * s, 86 * s, 84 * s);
+  ctx.fillRect(1116 * s, 388 * s, 86 * s, 84 * s);
+  ctx.strokeRect(1116 * s, 388 * s, 86 * s, 84 * s);
+  ctx.fillRect(1116 * s, 628 * s, 86 * s, 84 * s);
+  ctx.strokeRect(1116 * s, 628 * s, 86 * s, 84 * s);
 
   // Connector branches into Focus Pods
-  ctx.fillRect(575 * s, 260 * s, 60 * s, 32 * s);
-  ctx.fillRect(965 * s, 260 * s, 60 * s, 32 * s);
-  ctx.fillRect(575 * s, 808 * s, 60 * s, 34 * s);
-  ctx.fillRect(965 * s, 808 * s, 60 * s, 34 * s);
+  ctx.fillRect(555 * s, 255 * s, 90 * s, 40 * s);
+  ctx.strokeRect(555 * s, 255 * s, 90 * s, 40 * s);
+  ctx.fillRect(945 * s, 255 * s, 90 * s, 40 * s);
+  ctx.strokeRect(945 * s, 255 * s, 90 * s, 40 * s);
+  ctx.fillRect(555 * s, 805 * s, 90 * s, 40 * s);
+  ctx.strokeRect(555 * s, 805 * s, 90 * s, 40 * s);
+  ctx.fillRect(945 * s, 805 * s, 90 * s, 40 * s);
+  ctx.strokeRect(945 * s, 805 * s, 90 * s, 40 * s);
 
   // Connector branches to Outdoor Garden Dining Areas
   ctx.fillRect(180 * s, 535 * s, 302 * s, 55 * s);
@@ -576,9 +584,9 @@ export function drawCampusFurniture(
   if (zn.includes('coworking')) {
     if (zn.includes('north-west') || zn.includes('north-east')) {
       drawDeskWorkbench(ctx, X + 50 * s, Y + 40 * s, 160 * s, 42 * s, 3, s);
-      drawDeskWorkbench(ctx, X + 80 * s, Y + 140 * s, 220 * s, 68 * s, 6, s);
+      drawDeskWorkbench(ctx, X + 70 * s, Y + 115 * s, 200 * s, 54 * s, 6, s);
     } else {
-      drawDeskWorkbench(ctx, X + 60 * s, Y + 60 * s, 240 * s, 68 * s, 6, s);
+      drawDeskWorkbench(ctx, X + 60 * s, Y + 90 * s, 240 * s, 54 * s, 6, s);
     }
 
     // Floats & features per quadrant
@@ -628,8 +636,9 @@ export function drawCampusFurniture(
 
   // 1-to-1 Focus Pods
   else if (zn.includes('focus') || type === 'focus') {
+    const isNorth = zn.includes('nw') || zn.includes('ne');
     const cx = X + W / 2;
-    const cy = Y + H / 2 + 10 * s;
+    const cy = isNorth ? Y + H / 2 - 16 * s : Y + H / 2 + 16 * s;
 
     // Dual black club armchairs
     drawClubArmchair(ctx, cx - 38 * s, cy - 14 * s, s);

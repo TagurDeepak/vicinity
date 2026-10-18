@@ -93,6 +93,62 @@ describe('obstacle-avoiding pathfinding', () => {
     expect(doorway.x).toBe(400); // 140 + 260
   });
 
+  it('paths from Grand Plaza into Coworking North-West and Coworking North-East in campus garden layout', () => {
+    const campusGardenZones = [
+      { id: 'z1', name: 'Grand Fountain Plaza', type: 'open', geometry: { x: 590, y: 375, w: 420, h: 350 } },
+      { id: 'z2', name: 'Coworking North-West', type: 'open', geometry: { x: 140, y: 40, w: 380, h: 260 } },
+      { id: 'z3', name: 'Focus Pod NW', type: 'focus', geometry: { x: 540, y: 110, w: 130, h: 150 } },
+      { id: 'z4', name: 'Meeting Room Alpha', type: 'meeting', geometry: { x: 140, y: 340, w: 260, h: 180 } },
+      { id: 'z5', name: 'Coworking North-East', type: 'open', geometry: { x: 1080, y: 40, w: 380, h: 260 } },
+      { id: 'z6', name: 'Focus Pod NE', type: 'focus', geometry: { x: 930, y: 110, w: 130, h: 150 } },
+      { id: 'z7', name: 'Meeting Room Beta', type: 'meeting', geometry: { x: 1200, y: 340, w: 260, h: 180 } },
+      { id: 'z8', name: 'Meeting Room Gamma', type: 'meeting', geometry: { x: 140, y: 580, w: 260, h: 180 } },
+      { id: 'z9', name: 'Coworking South-West', type: 'open', geometry: { x: 140, y: 800, w: 380, h: 260 } },
+      { id: 'z10', name: 'Focus Pod SW', type: 'focus', geometry: { x: 540, y: 840, w: 130, h: 150 } },
+      { id: 'z11', name: 'Meeting Room Delta', type: 'meeting', geometry: { x: 1200, y: 580, w: 260, h: 180 } },
+      { id: 'z12', name: 'Coworking South-East', type: 'open', geometry: { x: 1080, y: 800, w: 380, h: 260 } },
+      { id: 'z13', name: 'Focus Pod SE', type: 'focus', geometry: { x: 930, y: 840, w: 130, h: 150 } },
+    ];
+
+    const plazaCenter = { x: 800, y: 550 };
+
+    // Test navigation to all 4 quadrants of Campus Garden
+    const testDestinations = [
+      { name: 'Coworking North-West', target: { x: 300, y: 150 } },
+      { name: 'Coworking North-East', target: { x: 1250, y: 150 } },
+      { name: 'Coworking South-West', target: { x: 300, y: 920 } },
+      { name: 'Coworking South-East', target: { x: 1250, y: 920 } },
+      { name: 'Focus Pod NW', target: { x: 605, y: 185 } },
+      { name: 'Focus Pod NE', target: { x: 995, y: 185 } },
+      { name: 'Focus Pod SW', target: { x: 605, y: 915 } },
+      { name: 'Focus Pod SE', target: { x: 995, y: 915 } },
+      { name: 'Meeting Room Alpha', target: { x: 270, y: 430 } },
+      { name: 'Meeting Room Beta', target: { x: 1330, y: 430 } },
+      { name: 'Meeting Room Gamma', target: { x: 270, y: 670 } },
+      { name: 'Meeting Room Delta', target: { x: 1330, y: 670 } },
+    ];
+
+    const { getWallSegments, lineSegmentsIntersect } = require('../features/office/collision');
+    const { walls } = getWallSegments(campusGardenZones);
+
+    for (const { name, target } of testDestinations) {
+      const path = findPath(plazaCenter, target, campusGardenZones);
+      expect(path.length).toBeGreaterThan(0);
+      const finalPoint = path[path.length - 1]!;
+      expect(`${name}: ${finalPoint.x},${finalPoint.y}`).toBe(`${name}: ${target.x},${target.y}`);
+
+      // Verify no path segment cuts through any solid wall segment
+      let origin = plazaCenter;
+      for (const pt of path) {
+        for (const w of walls) {
+          const cutsWall = lineSegmentsIntersect(origin.x, origin.y, pt.x, pt.y, w.x1, w.y1, w.x2, w.y2);
+          expect(cutsWall).toBe(false);
+        }
+        origin = pt;
+      }
+    }
+  });
+
   it('finds path from Breakout Cafe to Private Office avoiding Meeting Room Beta', () => {
     const defaultOfficeZones = [
       { id: 'z1', name: 'Commons Lounge', type: 'lounge', geometry: { x: 80, y: 100, w: 460, h: 360 } },

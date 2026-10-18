@@ -1371,6 +1371,135 @@ function drawArchitecturalDoor(
   ctx.restore();
 }
 
+/**
+ * Draws a modern architectural sliding pocket/track door.
+ *
+ * Usually (unlocked): The frosted glass door leaf is SLID OPEN into the wall pocket,
+ * leaving the doorway 100% clear with zero intrusion into tables or furniture.
+ * When locked: The door leaf glides closed across the doorway opening, sealed with a radiant red lock status LED.
+ */
+function drawSlidingDoor(
+  ctx: CanvasRenderingContext2D,
+  door: Doorway,
+  openProgress: number, // 0.0 = closed/locked across doorway, 1.0 = slid open into wall pocket
+  isLocked: boolean,
+  s: number,
+): void {
+  const dX = door.x * s;
+  const dY = door.y * s;
+  const dW = Math.max(door.w * s, 16 * s);
+  const dH = Math.max(door.h * s, 16 * s);
+  const isHorizontal = door.side === 'bottom' || door.side === 'top';
+
+  ctx.save();
+
+  // 1. Sleek guide track along wall and doorway opening
+  ctx.strokeStyle = isLocked ? 'rgba(239, 68, 68, 0.45)' : 'rgba(148, 163, 184, 0.5)';
+  ctx.lineWidth = 1.8 * s;
+  ctx.beginPath();
+  if (isHorizontal) {
+    // Track spans the doorway and pocket along the horizontal wall
+    ctx.moveTo(dX - 2 * s, dY);
+    ctx.lineTo(dX + dW * 1.95, dY);
+  } else {
+    // Track spans the doorway and pocket along the vertical wall
+    ctx.moveTo(dX, dY - 2 * s);
+    ctx.lineTo(dX, dY + dH * 1.95);
+  }
+  ctx.stroke();
+
+  // 2. Door threshold floor plate under the opening
+  ctx.fillStyle = isLocked ? 'rgba(239, 68, 68, 0.16)' : 'rgba(226, 232, 240, 0.85)';
+  if (isHorizontal) {
+    ctx.fillRect(dX, dY - 2.5 * s, dW, 5 * s);
+  } else {
+    ctx.fillRect(dX - 2.5 * s, dY, 5 * s, dH);
+  }
+
+  // 3. Wall Pocket / Track End Stoppers (sleek dark anodized steel)
+  ctx.fillStyle = '#0f172a';
+  if (isHorizontal) {
+    roundRect(ctx, dX - 3 * s, dY - 4 * s, 4 * s, 8 * s, 1.5 * s);
+    ctx.fill();
+    roundRect(ctx, dX + dW * 1.95 - 2 * s, dY - 4 * s, 4 * s, 8 * s, 1.5 * s);
+    ctx.fill();
+  } else {
+    roundRect(ctx, dX - 4 * s, dY - 3 * s, 8 * s, 4 * s, 1.5 * s);
+    ctx.fill();
+    roundRect(ctx, dX - 4 * s, dY + dH * 1.95 - 2 * s, 8 * s, 4 * s, 1.5 * s);
+    ctx.fill();
+  }
+
+  // 4. Sliding Glass Panel
+  // When closed (openProgress = 0): leaf is at [dX, dX + dW] covering opening
+  // When open (openProgress = 1): leaf is slid into pocket at [dX + dW * 0.95, ...]
+  const slideOffset = openProgress * (dW * 0.95);
+  const slideOffsetY = openProgress * (dH * 0.95);
+
+  const panelX = isHorizontal ? dX + slideOffset : dX - 2.5 * s;
+  const panelY = isHorizontal ? dY - 2.5 * s : dY + slideOffsetY;
+  const panelW = isHorizontal ? dW : 5 * s;
+  const panelH = isHorizontal ? 5 * s : dH;
+
+  // Drop shadow
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.20)';
+  roundRect(ctx, panelX + 1 * s, panelY + 1.5 * s, panelW, panelH, 2 * s);
+  ctx.fill();
+
+  // Panel slab: Frosted architectural glass with satin metal frame
+  ctx.fillStyle = isLocked
+    ? 'rgba(239, 68, 68, 0.45)'
+    : 'rgba(241, 245, 249, 0.92)';
+  roundRect(ctx, panelX, panelY, panelW, panelH, 2 * s);
+  ctx.fill();
+
+  // Perimeter metallic frame
+  ctx.strokeStyle = isLocked ? '#dc2626' : '#64748b';
+  ctx.lineWidth = 1.6 * s;
+  ctx.stroke();
+
+  // Glass refraction highlight streak along center
+  ctx.strokeStyle = isLocked ? 'rgba(254, 202, 202, 0.6)' : 'rgba(255, 255, 255, 0.85)';
+  ctx.lineWidth = 1 * s;
+  ctx.beginPath();
+  if (isHorizontal) {
+    ctx.moveTo(panelX + 4 * s, panelY + panelH / 2);
+    ctx.lineTo(panelX + panelW - 4 * s, panelY + panelH / 2);
+  } else {
+    ctx.moveTo(panelX + panelW / 2, panelY + 4 * s);
+    ctx.lineTo(panelX + panelW / 2, panelY + panelH - 4 * s);
+  }
+  ctx.stroke();
+
+  // 5. Sleek Flush-Pull Handle (stainless steel bar in the door leaf)
+  const handleFrac = 0.5;
+  const hx = isHorizontal ? panelX + panelW * handleFrac : panelX + panelW / 2;
+  const hy = isHorizontal ? panelY + panelH / 2 : panelY + panelH * handleFrac;
+
+  ctx.fillStyle = isLocked ? '#ef4444' : '#0f172a';
+  ctx.beginPath();
+  if (isHorizontal) {
+    roundRect(ctx, hx - 5 * s, hy - 1.2 * s, 10 * s, 2.4 * s, 1 * s);
+  } else {
+    roundRect(ctx, hx - 1.2 * s, hy - 5 * s, 2.4 * s, 10 * s, 1 * s);
+  }
+  ctx.fill();
+
+  // 6. Modern Electronic Lock Status LED on handle
+  ctx.beginPath();
+  ctx.arc(hx, hy, 2.4 * s, 0, Math.PI * 2);
+  ctx.fillStyle = isLocked ? '#ef4444' : '#10b981';
+  ctx.fill();
+  if (isLocked) {
+    ctx.shadowColor = '#ef4444';
+    ctx.shadowBlur = 6 * s;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  ctx.restore();
+}
+
 function drawZone(
   ctx: CanvasRenderingContext2D,
   z: Zone,
@@ -1530,8 +1659,13 @@ function drawZone(
     }
     ctx.stroke();
 
-    // Render animated architectural door (opens vertical into room, closes horizontal across doorway)
-    drawArchitecturalDoor(ctx, door, openProgress, isLocked, s);
+    // In Campus Garden or rooms where tables sit near the entrance, render modern architectural
+    // sliding pocket doors so the door never merges into tables or furniture.
+    if (isCampus) {
+      drawSlidingDoor(ctx, door, openProgress, isLocked, s);
+    } else {
+      drawArchitecturalDoor(ctx, door, openProgress, isLocked, s);
+    }
   } else {
     // Open lounge zones
     ctx.lineWidth = 1.5 * s;
