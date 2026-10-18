@@ -106,6 +106,30 @@ export function getDoorwayForZone(z: Zone): Doorway {
     };
   }
 
+  // Standard Modern Office: Private Office opens to right vertical corridor
+  if (name.includes('private office')) {
+    return {
+      zoneId: z.id,
+      side: 'right',
+      x: g.x + g.w,
+      y: g.y + g.h / 2 - DOOR_WIDTH / 2,
+      w: 0,
+      h: DOOR_WIDTH,
+    };
+  }
+
+  // Standard Modern Office: Focus Pod 1 & Focus Pod 2 open to top main corridor
+  if (name.includes('focus pod 1') || name.includes('focus pod 2')) {
+    return {
+      zoneId: z.id,
+      side: 'top',
+      x: g.x + g.w / 2 - DOOR_WIDTH / 2,
+      y: g.y,
+      w: DOOR_WIDTH,
+      h: 0,
+    };
+  }
+
   // Middle-left rooms facing right vertical corridor
   if (g.x < 350 && g.y >= 300 && g.y < 750) {
     return {
@@ -364,9 +388,29 @@ export function resolveMovement(
   return { x: resolvedX, y: resolvedY };
 }
 
-const GRID_SIZE = 24;
-const COLS = Math.ceil(FLOOR_WIDTH / GRID_SIZE); // 67
-const ROWS = Math.ceil(FLOOR_HEIGHT / GRID_SIZE); // 40
+/** Tests whether line segment (x1, y1)-(x2, y2) intersects segment (x3, y3)-(x4, y4). */
+export function lineSegmentsIntersect(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  x3: number,
+  y3: number,
+  x4: number,
+  y4: number,
+): boolean {
+  const ccw = (ax: number, ay: number, bx: number, by: number, cx: number, cy: number) => {
+    return (cy - ay) * (bx - ax) > (by - ay) * (cx - ax);
+  };
+  return (
+    ccw(x1, y1, x3, y3, x4, y4) !== ccw(x2, y2, x3, y3, x4, y4) &&
+    ccw(x1, y1, x2, y2, x3, y3) !== ccw(x1, y1, x2, y2, x4, y4)
+  );
+}
+
+const GRID_SIZE = 16;
+const COLS = Math.ceil(FLOOR_WIDTH / GRID_SIZE); // 100
+const ROWS = Math.ceil(FLOOR_HEIGHT / GRID_SIZE); // 63
 
 /**
  * Checks if a line segment between p1 and p2 has direct clear line of sight
@@ -380,8 +424,16 @@ export function hasLineOfSight(
   isCampus = false,
   zones: Zone[] = [],
 ): boolean {
+  // 1. Strict segment-segment intersection with all solid wall segments
+  for (const w of walls) {
+    if (lineSegmentsIntersect(p1.x, p1.y, p2.x, p2.y, w.x1, w.y1, w.x2, w.y2)) {
+      return false;
+    }
+  }
+
+  // 2. Sample points along the segment with buffer clearance
   const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-  const steps = Math.max(2, Math.ceil(dist / 10));
+  const steps = Math.max(3, Math.ceil(dist / 8));
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
     const x = p1.x + (p2.x - p1.x) * t;
@@ -441,8 +493,8 @@ export function findPath(
     return [clampedGoal];
   }
 
-  const startCol = Math.max(0, Math.min(COLS - 1, Math.floor(start.x / GRID_SIZE)));
-  const startRow = Math.max(0, Math.min(ROWS - 1, Math.floor(start.y / GRID_SIZE)));
+  let startCol = Math.max(0, Math.min(COLS - 1, Math.floor(start.x / GRID_SIZE)));
+  let startRow = Math.max(0, Math.min(ROWS - 1, Math.floor(start.y / GRID_SIZE)));
   let goalCol = Math.max(0, Math.min(COLS - 1, Math.floor(clampedGoal.x / GRID_SIZE)));
   let goalRow = Math.max(0, Math.min(ROWS - 1, Math.floor(clampedGoal.y / GRID_SIZE)));
 
@@ -451,6 +503,29 @@ export function findPath(
     if (isCampus && !isCampusWalkable({ x, y }, zones)) return true;
     return false;
   };
+
+  // If start cell is blocked (e.g. avatar standing right near wall), find nearest unblocked cell
+  if (isBlocked(cellX(startCol), cellY(startRow))) {
+    let bestDist = Infinity;
+    let foundCol = startCol;
+    let foundRow = startRow;
+    for (let r = Math.max(0, startRow - 3); r <= Math.min(ROWS - 1, startRow + 3); r++) {
+      for (let c = Math.max(0, startCol - 3); c <= Math.min(COLS - 1, startCol + 3); c++) {
+        const cx = cellX(c);
+        const cy = cellY(r);
+        if (!isBlocked(cx, cy)) {
+          const d = Math.hypot(cx - start.x, cy - start.y);
+          if (d < bestDist) {
+            bestDist = d;
+            foundCol = c;
+            foundRow = r;
+          }
+        }
+      }
+    }
+    startCol = foundCol;
+    startRow = foundRow;
+  }
 
   // If goal cell is blocked, search nearby unblocked cells
   if (isBlocked(cellX(goalCol), cellY(goalRow))) {
@@ -480,7 +555,10 @@ export function findPath(
   const goalKey = toKey(goalCol, goalRow);
 
   if (startKey === goalKey) {
-    return [clampedGoal];
+    if (hasLineOfSight(start, clampedGoal, walls, AVATAR_RADIUS + 2, isCampus, zones)) {
+      return [clampedGoal];
+    }
+    return [];
   }
 
   const openSet = new Set<number>([startKey]);
@@ -489,6 +567,9 @@ export function findPath(
   const fScore = new Map<number, number>([
     [startKey, Math.hypot(startCol - goalCol, startRow - goalRow)],
   ]);
+
+  let closestKey = startKey;
+  let closestDist = Math.hypot(startCol - goalCol, startRow - goalRow);
 
   const directions = [
     { dc: 1, dr: 0, cost: 1 },
@@ -538,6 +619,12 @@ export function findPath(
     const currR = Math.floor(currentKey / COLS);
     const currentG = gScore.get(currentKey) ?? Infinity;
 
+    const distToGoal = Math.hypot(currC - goalCol, currR - goalRow);
+    if (distToGoal < closestDist) {
+      closestDist = distToGoal;
+      closestKey = currentKey;
+    }
+
     for (const { dc, dr, cost } of directions) {
       const nc = currC + dc;
       const nr = currR + dr;
@@ -571,7 +658,21 @@ export function findPath(
     }
   }
 
-  return [clampedGoal];
+  // If goal could not be reached, check if we found a closest reachable point that is closer than start
+  if (closestKey !== startKey && closestDist < Math.hypot(startCol - goalCol, startRow - goalRow) - 1) {
+    const rawWaypoints: Vec2[] = [];
+    let curr: number | undefined = closestKey;
+    while (curr !== undefined) {
+      const c = curr % COLS;
+      const r = Math.floor(curr / COLS);
+      rawWaypoints.unshift({ x: cellX(c), y: cellY(r) });
+      curr = cameFrom.get(curr);
+    }
+    return smoothPath(start, rawWaypoints, walls, isCampus, zones);
+  }
+
+  // Unreachable - NEVER return a direct straight line through obstacles
+  return [];
 }
 
 /**
@@ -584,7 +685,13 @@ function smoothPath(
   isCampus = false,
   zones: Zone[] = [],
 ): Vec2[] {
-  if (waypoints.length <= 1) return waypoints;
+  if (waypoints.length === 0) return [];
+  if (waypoints.length === 1) {
+    if (hasLineOfSight(start, waypoints[0]!, walls, AVATAR_RADIUS + 2, isCampus, zones)) {
+      return waypoints;
+    }
+    return [];
+  }
 
   const smoothed: Vec2[] = [];
   let currentOrigin = start;

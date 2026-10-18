@@ -92,4 +92,88 @@ describe('obstacle-avoiding pathfinding', () => {
     expect(doorway.side).toBe('right');
     expect(doorway.x).toBe(400); // 140 + 260
   });
+
+  it('finds path from Breakout Cafe to Private Office avoiding Meeting Room Beta', () => {
+    const defaultOfficeZones = [
+      { id: 'z1', name: 'Commons Lounge', type: 'lounge', geometry: { x: 80, y: 100, w: 460, h: 360 } },
+      { id: 'z2', name: 'Focus Pod 1', type: 'focus', geometry: { x: 80, y: 520, w: 220, h: 200 } },
+      { id: 'z3', name: 'Focus Pod 2', type: 'focus', geometry: { x: 320, y: 520, w: 220, h: 200 } },
+      { id: 'z4', name: 'Private Office', type: 'private', geometry: { x: 80, y: 760, w: 460, h: 180 } },
+      { id: 'z5', name: 'Meeting Room Alpha', type: 'meeting', geometry: { x: 600, y: 100, w: 460, h: 360 } },
+      { id: 'z6', name: 'Meeting Room Beta', type: 'meeting', geometry: { x: 600, y: 520, w: 460, h: 420 } },
+      { id: 'z7', name: 'The Boardroom', type: 'meeting', geometry: { x: 1120, y: 100, w: 420, h: 460 } },
+      { id: 'z8', name: 'Breakout Cafe', type: 'open', geometry: { x: 1120, y: 620, w: 420, h: 320 } },
+    ];
+    const { getWallSegments, lineSegmentsIntersect } = require('../features/office/collision');
+    const { walls } = getWallSegments(defaultOfficeZones);
+    const startInCafe = { x: 1250, y: 750 };
+    const goalInPrivateOffice = { x: 250, y: 820 };
+    const path = findPath(startInCafe, goalInPrivateOffice, defaultOfficeZones);
+
+    expect(path.length).toBeGreaterThan(1);
+
+    // Verify all path waypoints completely avoid passing inside Meeting Room Beta
+    const betaGeom = defaultOfficeZones[5]!.geometry;
+    for (const pt of path) {
+      const insideBeta =
+        pt.x > betaGeom.x + 10 &&
+        pt.x < betaGeom.x + betaGeom.w - 10 &&
+        pt.y > betaGeom.y + 10 &&
+        pt.y < betaGeom.y + betaGeom.h - 10;
+      expect(insideBeta).toBe(false);
+    }
+
+    // Verify no segment in the route cuts through any solid wall segment
+    let currentOrigin = startInCafe;
+    const betaWalls = walls.filter((w: any) => w.zoneId === 'z6');
+    for (const pt of path) {
+      for (const bw of betaWalls) {
+        const cutsWall = lineSegmentsIntersect(
+          currentOrigin.x,
+          currentOrigin.y,
+          pt.x,
+          pt.y,
+          bw.x1,
+          bw.y1,
+          bw.x2,
+          bw.y2,
+        );
+        expect(cutsWall).toBe(false);
+      }
+      currentOrigin = pt;
+    }
+  });
+
+  it('never cuts through walls when target room is locked or unreachable', () => {
+    const defaultOfficeZones = [
+      { id: 'z1', name: 'Commons Lounge', type: 'lounge', geometry: { x: 80, y: 100, w: 460, h: 360 } },
+      { id: 'z6', name: 'Meeting Room Beta', type: 'meeting', geometry: { x: 600, y: 520, w: 460, h: 420 } },
+      { id: 'z8', name: 'Breakout Cafe', type: 'open', geometry: { x: 1120, y: 620, w: 420, h: 320 } },
+    ];
+    const { getWallSegments, lineSegmentsIntersect } = require('../features/office/collision');
+    const lockedZoneIds = new Set(['z6']);
+    const { walls } = getWallSegments(defaultOfficeZones, lockedZoneIds);
+    const startInCafe = { x: 1250, y: 750 };
+    const insideLockedBeta = { x: 830, y: 730 };
+    const path = findPath(startInCafe, insideLockedBeta, defaultOfficeZones, lockedZoneIds);
+
+    // Any resulting path must never cut through solid walls
+    let currentOrigin = startInCafe;
+    for (const pt of path) {
+      for (const w of walls) {
+        const cutsWall = lineSegmentsIntersect(
+          currentOrigin.x,
+          currentOrigin.y,
+          pt.x,
+          pt.y,
+          w.x1,
+          w.y1,
+          w.x2,
+          w.y2,
+        );
+        expect(cutsWall).toBe(false);
+      }
+      currentOrigin = pt;
+    }
+  });
 });

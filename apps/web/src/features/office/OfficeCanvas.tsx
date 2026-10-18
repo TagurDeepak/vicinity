@@ -179,6 +179,7 @@ export function OfficeCanvas({
 
   const keys = useRef<Set<string>>(new Set());
   const pathWaypoints = useRef<Vec2[]>([]);
+  const stuckFrames = useRef<number>(0);
   const pos = useRef<Vec2>({ x: 200, y: 200 });
   const currentZoneRef = useRef<Zone | null>(null);
 
@@ -309,6 +310,7 @@ export function OfficeCanvas({
           moved = true;
         }
       }
+      let actuallyMoved = false;
       if (moved) {
         const resolved = resolveMovement(
           pos.current,
@@ -317,7 +319,10 @@ export function OfficeCanvas({
           lockedZoneIdsRef.current,
           isCampus,
         );
-        if (resolved.x !== pos.current.x || resolved.y !== pos.current.y) {
+        const actualStep = Math.hypot(resolved.x - pos.current.x, resolved.y - pos.current.y);
+        if (actualStep > 0.001) {
+          actuallyMoved = true;
+          stuckFrames.current = 0;
           pos.current = resolved;
           const currentCoord = { x: Math.round(pos.current.x), y: Math.round(pos.current.y) };
 
@@ -337,8 +342,16 @@ export function OfficeCanvas({
             if (activeZone) onZoneEnterRef.current?.(activeZone.id);
             onZoneChangeRef.current?.(activeZone);
           }
+        } else if (pathWaypoints.current.length > 0) {
+          // Blocked against an obstacle while following a path
+          stuckFrames.current += 1;
+          if (stuckFrames.current > 4) {
+            pathWaypoints.current = [];
+            stuckFrames.current = 0;
+          }
         }
-      } else {
+      }
+      if (!actuallyMoved) {
         // When avatar has stopped moving, ensure the final resting position was sent
         const currentCoord = { x: Math.round(pos.current.x), y: Math.round(pos.current.y) };
         if (
@@ -499,10 +512,12 @@ export function OfficeCanvas({
         const dyu = prev ? worldY - prev.y : 0;
         const distMoved = Math.hypot(dxu, dyu);
 
-        // Self is moving if keys are pressed, pathing, or pos changed
-        const moving = isSelf
-          ? keys.current.size > 0 || pathWaypoints.current.length > 0 || distMoved > 0.15
-          : distMoved > 0.4;
+        // Self is moving only when actually displacing in world coordinates
+        const isSelfMoving =
+          isSelf &&
+          distMoved > 0.08 &&
+          (keys.current.size > 0 || pathWaypoints.current.length > 0 || distMoved > 0.15);
+        const moving = isSelf ? isSelfMoving : distMoved > 0.4;
         const facing = dxu > 0.15 ? 1 : dxu < -0.15 ? -1 : (prev?.facing ?? 1);
         const phase = moving ? (prev?.phase ?? 0) + dt * 10 : 0;
         anim.current.set(u.userId, { x: worldX, y: worldY, facing, phase });
