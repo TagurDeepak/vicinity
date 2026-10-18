@@ -35,6 +35,27 @@ function shortestAngleDiff(targetDeg: number, currentDeg: number): number {
   return diff;
 }
 
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  if (typeof (ctx as unknown as { roundRect?: unknown }).roundRect === 'function') {
+    ctx.roundRect(x, y, w, h, r);
+  } else {
+    const radius = Math.min(r, w / 2, h / 2);
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + w, y, x + w, y + h, radius);
+    ctx.arcTo(x + w, y + h, x, y + h, radius);
+    ctx.arcTo(x, y + h, x, y, radius);
+    ctx.arcTo(x, y, x + w, y, radius);
+    ctx.closePath();
+  }
+}
+
 interface MagicDuelCanvasProps {
   workspaceId: string;
   zoneId: string;
@@ -265,34 +286,45 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     socket.on('disconnect', () => setIsConnected(false));
 
     const onGameState = (state: GameWorldState) => {
-      setIsConnected(true);
-      gameStateRef.current = state;
-      if (!hasInitialStateRef.current) {
-        hasInitialStateRef.current = true;
-        setHasInitialState(true);
-        setActiveMap(state.mapId);
-      }
+      try {
+        if (!state) return;
+        setIsConnected(true);
+        gameStateRef.current = state;
+        if (!hasInitialStateRef.current) {
+          hasInitialStateRef.current = true;
+          setHasInitialState(true);
+          setActiveMap(state.mapId);
+        }
 
-      // Detect health drops to spawn floating combat numbers and play audio
-      const prevMap = prevPlayersHealthRef.current;
-      const myId = userRef.current?.id;
-      for (const p of state.players) {
-        const prevHp = prevMap.get(p.id);
-        if (prevHp !== undefined && prevHp > p.health) {
-          const dmg = prevHp - p.health;
-          floatingNumbersRef.current.push({
-            id: `fn-${Date.now()}-${Math.random()}`,
-            x: p.posX,
-            y: p.posY - 35,
-            text: `-${dmg}`,
-            color: '#ef4444',
-            createdAt: Date.now(),
-          });
-          if (p.id === myId) {
-            audioRef.current.playHit();
+        // Detect health drops to spawn floating combat numbers and play audio
+        const prevMap = prevPlayersHealthRef.current;
+        const myId = userRef.current?.id;
+        if (Array.isArray(state.players)) {
+          for (const p of state.players) {
+            const prevHp = prevMap.get(p.id);
+            if (prevHp !== undefined && prevHp > p.health) {
+              const dmg = prevHp - p.health;
+              floatingNumbersRef.current.push({
+                id: `fn-${Date.now()}-${Math.random()}`,
+                x: p.posX,
+                y: p.posY - 35,
+                text: `-${dmg}`,
+                color: '#ef4444',
+                createdAt: Date.now(),
+              });
+              if (p.id === myId) {
+                try {
+                  audioRef.current.playHit();
+                } catch {
+                  // Audio error safety
+                }
+              }
+            }
+            prevMap.set(p.id, p.health);
           }
         }
-        prevMap.set(p.id, p.health);
+      } catch (err) {
+        console.error('onGameState processing error:', err);
       }
     };
 
@@ -439,21 +471,23 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     let animId: number;
 
     const render = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      animId = requestAnimationFrame(render);
+      try {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
 
-      const width = canvas.width;
-      const height = canvas.height;
-      const now = performance.now();
-      const dt = Math.min(0.05, (now - lastFrameTimeRef.current) / 1000);
-      lastFrameTimeRef.current = now;
+        const width = canvas.width;
+        const height = canvas.height;
+        const now = performance.now();
+        const dt = Math.min(0.05, (now - lastFrameTimeRef.current) / 1000);
+        lastFrameTimeRef.current = now;
 
-      // Find local player
-      const state = gameStateRef.current;
-      const myId = userRef.current?.id;
-      const localPlayer = state?.players.find((p) => p.id === myId) || state?.players.find((p) => !p.isBot) || null;
+        // Find local player
+        const state = gameStateRef.current;
+        const myId = userRef.current?.id;
+        const localPlayer = state?.players?.find((p) => p.id === myId) || state?.players?.find((p) => !p.isBot) || null;
 
       // 1. Client-Side Prediction for Local Player (Zero Input Latency)
       if (localPlayer) {
@@ -617,11 +651,15 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       let ptrn = patternsRef.current.get(currentMapId);
       if (!ptrn) {
         const floorImg = textures.floors[currentMapId];
-        if (floorImg && floorImg.complete && floorImg.width > 0) {
-          const created = ctx.createPattern(floorImg, 'repeat');
-          if (created) {
-            patternsRef.current.set(currentMapId, created);
-            ptrn = created;
+        if (floorImg && floorImg.complete && floorImg.naturalWidth > 0) {
+          try {
+            const created = ctx.createPattern(floorImg, 'repeat');
+            if (created) {
+              patternsRef.current.set(currentMapId, created);
+              ptrn = created;
+            }
+          } catch {
+            ptrn = undefined;
           }
         }
       }
@@ -937,7 +975,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.roundRect(0, 0, 260, 68, 12);
+        roundRectPath(ctx, 0, 0, 260, 68, 12);
         ctx.fill();
         ctx.stroke();
 
@@ -974,7 +1012,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         state.killFeed.slice(0, 3).forEach((item, idx) => {
           ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
           ctx.beginPath();
-          ctx.roundRect(-150, idx * 26, 300, 22, 6);
+          roundRectPath(ctx, -150, idx * 26, 300, 22, 6);
           ctx.fill();
 
           ctx.fillStyle = '#f8fafc';
@@ -991,7 +1029,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.roundRect(0, 0, 160, 48, 10);
+        roundRectPath(ctx, 0, 0, 160, 48, 10);
         ctx.fill();
         ctx.stroke();
 
@@ -1003,26 +1041,31 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         ctx.fillText(`SCORE: ${localPlayer.score}`, 85, 22);
         ctx.restore();
       }
+    } catch (err) {
+      console.error('Magic Duel render error:', err);
+    }
+  };
 
-      animId = requestAnimationFrame(render);
-    };
+  animId = requestAnimationFrame(render);
+  return () => cancelAnimationFrame(animId);
+}, []); // Run continuously with uninterrupted vsync
 
-    animId = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(animId);
-  }, []); // Run continuously with uninterrupted vsync
-
-  // Periodic cooldown badge update (100ms throttled to eliminate React DOM thrashing)
-  useEffect(() => {
-    const timer = setInterval(() => {
+// Periodic cooldown badge update (100ms throttled to eliminate React DOM thrashing)
+useEffect(() => {
+  const timer = setInterval(() => {
+    try {
       const state = gameStateRef.current;
       const currentUserId = userRef.current?.id;
-      const lp = state?.players.find((p) => p.id === currentUserId) || state?.players.find((p) => !p.isBot);
-      if (lp) {
+      const lp = state?.players?.find((p) => p.id === currentUserId) || state?.players?.find((p) => !p.isBot);
+      if (lp?.cooldowns) {
         setCooldowns({ ...lp.cooldowns });
       }
-    }, 100);
-    return () => clearInterval(timer);
-  }, []);
+    } catch {
+      // Cooldown safety
+    }
+  }, 100);
+  return () => clearInterval(timer);
+}, []);
 
   // Handle map selection
   const handleSelectMap = (mapId: GameMapTheme) => {
@@ -1174,8 +1217,8 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                 {sp.mana} MP
               </span>
               {/* Cooldown Overlay */}
-              {cd > 0 && (
-                <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/75 backdrop-blur-xs">
+              {typeof cd === 'number' && Number.isFinite(cd) && cd > 0 && (
+                <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/75 backdrop-blur-sm">
                   <span className="font-mono text-xs font-bold text-amber-400">{cd.toFixed(1)}s</span>
                 </div>
               )}
