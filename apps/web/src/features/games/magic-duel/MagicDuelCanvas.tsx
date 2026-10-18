@@ -56,6 +56,343 @@ function roundRectPath(
   }
 }
 
+interface WizardColors {
+  robeBase: string;
+  robeHighlight: string;
+  robeTrim: string;
+  hatBase: string;
+  hatTrim: string;
+  crystalGlow: string;
+  crystalCore: string;
+  eyeColor: string;
+}
+
+const WIZARD_PALETTES: WizardColors[] = [
+  // 0: Sapphire Arcane (Local Player)
+  {
+    robeBase: '#1e40af',
+    robeHighlight: '#3b82f6',
+    robeTrim: '#38bdf8',
+    hatBase: '#172554',
+    hatTrim: '#fbbf24',
+    crystalGlow: 'rgba(56, 189, 248, 0.5)',
+    crystalCore: '#38bdf8',
+    eyeColor: '#38bdf8',
+  },
+  // 1: Crimson Pyromancer (Bot / Rival)
+  {
+    robeBase: '#991b1b',
+    robeHighlight: '#ef4444',
+    robeTrim: '#f59e0b',
+    hatBase: '#450a0a',
+    hatTrim: '#f59e0b',
+    crystalGlow: 'rgba(239, 68, 68, 0.5)',
+    crystalCore: '#f97316',
+    eyeColor: '#facc15',
+  },
+  // 2: Emerald Chronomancer
+  {
+    robeBase: '#065f46',
+    robeHighlight: '#10b981',
+    robeTrim: '#6ee7b7',
+    hatBase: '#022c22',
+    hatTrim: '#a7f3d0',
+    crystalGlow: 'rgba(16, 185, 129, 0.5)',
+    crystalCore: '#34d399',
+    eyeColor: '#a7f3d0',
+  },
+  // 3: Amethyst Voidwalker
+  {
+    robeBase: '#5b21b6',
+    robeHighlight: '#8b5cf6',
+    robeTrim: '#c084fc',
+    hatBase: '#2e1065',
+    hatTrim: '#e9d5ff',
+    crystalGlow: 'rgba(168, 85, 247, 0.5)',
+    crystalCore: '#c084fc',
+    eyeColor: '#f472b6',
+  },
+];
+
+function drawWizardCharacter(
+  ctx: CanvasRenderingContext2D,
+  colorIndex: number,
+  isMe: boolean,
+  angleDeg: number,
+  isDashing: boolean,
+  hitFlashTimer: number,
+  hasShield: boolean,
+  activeSpell: SpellType,
+  time: number,
+): void {
+  ctx.save();
+
+  // 1. Ground Shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.beginPath();
+  ctx.ellipse(0, 16, 22, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const rad = (angleDeg * Math.PI) / 180;
+
+  // 2. Selection / Target Aura Disc on Ground
+  if (isMe) {
+    const pulse = Math.sin(time / 200) * 2;
+    // Outer vibrant pulsing ring
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 16, 25 + pulse, 12 + pulse * 0.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner dashed indicator
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.ellipse(0, 16, 19, 9, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Directional orientation pointer on ground
+    const arrowDist = 30;
+    const ax = Math.cos(rad) * arrowDist;
+    const ay = Math.sin(rad) * (arrowDist * 0.5) + 16;
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.arc(ax, ay, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Enemy / Bot ground ring
+    ctx.strokeStyle = colorIndex === 1 ? 'rgba(239, 68, 68, 0.6)' : 'rgba(168, 85, 247, 0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 16, 22, 10, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // 3. Dashing Motion Trails
+  if (isDashing) {
+    const oppRad = ((angleDeg + 180) * Math.PI) / 180;
+    for (const d of [15, 30, 45]) {
+      const alpha = 0.4 - d * 0.007;
+      ctx.fillStyle = `rgba(56, 189, 248, ${Math.max(0.05, alpha)})`;
+      ctx.beginPath();
+      ctx.arc(Math.cos(oppRad) * d, Math.sin(oppRad) * d, 18 - d * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // 4. Hit Flash Glow
+  if (hitFlashTimer > 0) {
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 28, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 5. Robe & Cloak
+  const pIndex = Math.max(0, Math.min(3, colorIndex));
+  const palette = WIZARD_PALETTES[pIndex] ?? (WIZARD_PALETTES[0] as WizardColors);
+  const bob = Math.sin(time / 180) * 2;
+
+  // Robe Mantle
+  ctx.fillStyle = hitFlashTimer > 0 ? '#fee2e2' : palette.robeBase;
+  ctx.beginPath();
+  ctx.moveTo(-16, 15 + bob);
+  ctx.quadraticCurveTo(-18, 0 + bob, -13, -8 + bob);
+  ctx.lineTo(13, -8 + bob);
+  ctx.quadraticCurveTo(18, 0 + bob, 16, 15 + bob);
+  ctx.quadraticCurveTo(0, 19 + bob, -16, 15 + bob);
+  ctx.closePath();
+  ctx.fill();
+
+  // Robe Hem Trim
+  ctx.strokeStyle = hitFlashTimer > 0 ? '#ef4444' : palette.robeTrim;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Robe Center Pleat / Highlight
+  ctx.fillStyle = hitFlashTimer > 0 ? '#fca5a5' : palette.robeHighlight;
+  ctx.beginPath();
+  ctx.moveTo(-5, -6 + bob);
+  ctx.lineTo(5, -6 + bob);
+  ctx.lineTo(8, 16 + bob);
+  ctx.lineTo(-8, 16 + bob);
+  ctx.closePath();
+  ctx.fill();
+
+  // Belt & Golden Buckle
+  ctx.fillStyle = '#78350f';
+  ctx.fillRect(-11, 4 + bob, 22, 4);
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillRect(-4, 3 + bob, 8, 6);
+  ctx.fillStyle = palette.crystalCore;
+  ctx.fillRect(-1.5, 4.5 + bob, 3, 3);
+
+  // 6. Arcane Cowl & Glowing Eyes
+  // Cowl Shadow
+  ctx.fillStyle = '#090d16';
+  ctx.beginPath();
+  ctx.ellipse(0, -9 + bob, 11, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes gaze towards crosshair/aim direction
+  const lookX = Math.cos(rad) * 3.5;
+  const lookY = Math.sin(rad) * 2.2;
+  const eyeGlowColor = hitFlashTimer > 0 ? '#ffffff' : palette.eyeColor;
+
+  // Eye outer glow discs
+  ctx.fillStyle = eyeGlowColor;
+  ctx.globalAlpha = 0.5;
+  ctx.beginPath();
+  ctx.arc(-4 + lookX, -10 + bob + lookY, 3.2, 0, Math.PI * 2);
+  ctx.arc(4 + lookX, -10 + bob + lookY, 3.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eye radiant pupils
+  ctx.globalAlpha = 1.0;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(-4 + lookX, -10 + bob + lookY, 1.6, 0, Math.PI * 2);
+  ctx.arc(4 + lookX, -10 + bob + lookY, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 7. Wizard Hat
+  // Hat Brim
+  ctx.fillStyle = hitFlashTimer > 0 ? '#fee2e2' : palette.hatBase;
+  ctx.beginPath();
+  ctx.ellipse(0, -14 + bob, 18, 5.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = palette.robeTrim;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Hat Cone (tilts subtly relative to aim)
+  const tipX = -Math.cos(rad) * 7;
+  const tipY = -36 + bob;
+  ctx.fillStyle = hitFlashTimer > 0 ? '#fee2e2' : palette.hatBase;
+  ctx.beginPath();
+  ctx.moveTo(-12, -15 + bob);
+  ctx.quadraticCurveTo(-14, -26 + bob, tipX, tipY);
+  ctx.quadraticCurveTo(6, -26 + bob, 12, -15 + bob);
+  ctx.closePath();
+  ctx.fill();
+
+  // Cone Highlight
+  ctx.fillStyle = hitFlashTimer > 0 ? '#fca5a5' : palette.robeHighlight;
+  ctx.beginPath();
+  ctx.moveTo(-3, -15 + bob);
+  ctx.quadraticCurveTo(-4, -25 + bob, tipX, tipY);
+  ctx.lineTo(tipX + 2, tipY);
+  ctx.quadraticCurveTo(2, -25 + bob, 3, -15 + bob);
+  ctx.closePath();
+  ctx.fill();
+
+  // Golden Hat Ribbon
+  ctx.fillStyle = palette.hatTrim;
+  ctx.beginPath();
+  ctx.ellipse(0, -15 + bob, 12.5, 3.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Glowing Hat Star
+  ctx.fillStyle = '#fef08a';
+  ctx.beginPath();
+  ctx.arc(tipX, tipY, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 8. Wizard Staff & Arcane Spell Crystal
+  const handDist = 14;
+  const handAngle = rad + Math.PI * 0.35;
+  const hx = Math.cos(handAngle) * handDist;
+  const hy = Math.sin(handAngle) * handDist * 0.7 + bob;
+
+  const orbDist = 32;
+  const ox = Math.cos(rad) * orbDist;
+  const oy = Math.sin(rad) * orbDist + bob;
+
+  // Sturdy wooden shaft
+  ctx.strokeStyle = '#78350f';
+  ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  ctx.moveTo(hx, hy);
+  ctx.lineTo(ox, oy);
+  ctx.stroke();
+
+  // Golden crystal ferrule
+  ctx.strokeStyle = '#fbbf24';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(ox, oy, 6.5, rad - 1.2, rad + 1.2);
+  ctx.stroke();
+
+  // Spell-specific Crystal Colors
+  let orbGlow = 'rgba(249, 115, 22, 0.4)';
+  let orbCore = '#f97316';
+  let orbCenter = '#fef08a';
+  if (activeSpell === 'frost') {
+    orbGlow = 'rgba(56, 189, 248, 0.45)';
+    orbCore = '#38bdf8';
+    orbCenter = '#ffffff';
+  } else if (activeSpell === 'lightning') {
+    orbGlow = 'rgba(168, 85, 247, 0.45)';
+    orbCore = '#c084fc';
+    orbCenter = '#fdf4ff';
+  } else if (activeSpell === 'shield') {
+    orbGlow = 'rgba(16, 185, 129, 0.45)';
+    orbCore = '#10b981';
+    orbCenter = '#ecfdf5';
+  }
+
+  // Pulsing Arcane Orb
+  const orbPulse = Math.sin(time / 140) * 1.5;
+  ctx.fillStyle = orbGlow;
+  ctx.beginPath();
+  ctx.arc(ox, oy, 8.5 + orbPulse, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = orbCore;
+  ctx.beginPath();
+  ctx.arc(ox, oy, 5.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = orbCenter;
+  ctx.beginPath();
+  ctx.arc(ox, oy, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Orbiting magic mote
+  const m1Angle = time / 160;
+  ctx.fillStyle = orbCenter;
+  ctx.beginPath();
+  ctx.arc(ox + Math.cos(m1Angle) * 9, oy + Math.sin(m1Angle) * 9, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 9. Arcane Shield Bubble
+  if (hasShield) {
+    ctx.strokeStyle = '#38bdf8';
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.18)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, 32, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Orbiting arcane rune arcs
+    const sAngle = time / 300;
+    ctx.strokeStyle = 'rgba(125, 211, 252, 0.7)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 36, sAngle, sAngle + Math.PI * 0.6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, 36, sAngle + Math.PI, sAngle + Math.PI * 1.6);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
 interface MagicDuelCanvasProps {
   workspaceId: string;
   zoneId: string;
@@ -487,7 +824,11 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         // Find local player
         const state = gameStateRef.current;
         const myId = userRef.current?.id;
-        const localPlayer = state?.players?.find((p) => p.id === myId) || state?.players?.find((p) => !p.isBot) || null;
+        const localPlayer =
+          state?.players?.find((p) => myId && p.id === myId) ||
+          state?.players?.find((p) => !p.isBot) ||
+          state?.players?.[0] ||
+          null;
 
       // 1. Client-Side Prediction for Local Player (Zero Input Latency)
       if (localPlayer) {
@@ -845,53 +1186,17 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
             ctx.restore();
           }
 
-          // Wizard Sprite Selection (16 angles)
-          const slice = Math.round(((drawAngle % 360) + 360) % 360 / 22.5) % 16;
-          const wizardImg = textures.wizards[slice];
-
-          // Hit flash / Dashing aura effects (zero ctx.filter overhead)
-          if (player.isDashing) {
-            ctx.fillStyle = 'rgba(56, 189, 248, 0.35)';
-            ctx.beginPath();
-            ctx.arc(0, 0, 30, 0, Math.PI * 2);
-            ctx.fill();
-          }
-          if (player.hitFlashTimer > 0) {
-            ctx.fillStyle = 'rgba(239, 68, 68, 0.45)';
-            ctx.beginPath();
-            ctx.arc(0, 0, 26, 0, Math.PI * 2);
-            ctx.fill();
-          }
-
-          if (wizardImg && wizardImg.complete && wizardImg.width > 0) {
-            ctx.drawImage(wizardImg, -24, -28, 48, 56);
-          } else {
-            // Fallback colored circle
-            ctx.fillStyle = player.colorIndex === 0 ? '#3b82f6' : '#ef4444';
-            ctx.beginPath();
-            ctx.arc(0, 0, 20, 0, Math.PI * 2);
-            ctx.fill();
-          }
-
-          // Arcane Shield Bubble (Vector double ring, no shadow blur)
-          if (player.hasShield) {
-            ctx.save();
-            ctx.strokeStyle = '#38bdf8';
-            ctx.fillStyle = 'rgba(56, 189, 248, 0.18)';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.arc(0, 0, 32, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-
-            // Outer ring aura
-            ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.arc(0, 0, 36, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.restore();
-          }
+          drawWizardCharacter(
+            ctx,
+            player.colorIndex,
+            isMe,
+            drawAngle,
+            player.isDashing,
+            player.hitFlashTimer,
+            player.hasShield,
+            isMe ? selectedSpellRef.current : player.activeSpell,
+            now,
+          );
 
           ctx.restore();
 
@@ -901,19 +1206,19 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
           ctx.textAlign = 'center';
 
           // Player name with clean text shadow
-          const playerName = player.name + (player.isBot ? ' [BOT]' : '');
+          const playerName = (isMe ? '⭐ ' : '') + player.name + (player.isBot ? ' [BOT]' : '');
           ctx.fillStyle = '#000000';
-          ctx.fillText(playerName, drawX + 1, drawY - 35);
-          ctx.fillStyle = isMe ? '#38bdf8' : '#f8fafc';
-          ctx.fillText(playerName, drawX, drawY - 36);
+          ctx.fillText(playerName, drawX + 1, drawY - 45);
+          ctx.fillStyle = isMe ? '#38bdf8' : player.isBot ? '#f87171' : '#f8fafc';
+          ctx.fillText(playerName, drawX, drawY - 46);
 
           // Mini Health Bar
-          const barW = 44;
+          const barW = 46;
           const barH = 5;
           const barX = drawX - barW / 2;
-          const barY = drawY - 32;
+          const barY = drawY - 41;
 
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
           ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
 
           const hpRatio = Math.max(0, player.health / player.maxHealth);
