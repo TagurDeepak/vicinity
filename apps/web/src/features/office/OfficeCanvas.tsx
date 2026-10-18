@@ -125,6 +125,7 @@ export function OfficeCanvas({
   onZoneLeave,
   onZoneChange,
   onStartDm,
+  isGameOpen = false,
 }: {
   zones: Zone[];
   layoutTheme?: 'standard' | 'campus-garden' | 'campus-3d' | 'sky-campus-3d';
@@ -135,6 +136,7 @@ export function OfficeCanvas({
   onZoneLeave?: (zoneId?: string) => void;
   onZoneChange?: (zone: Zone | null) => void;
   onStartDm?: (userId: string, displayName: string) => void;
+  isGameOpen?: boolean;
 }) {
   const isCampus =
     layoutTheme === 'campus-garden' ||
@@ -290,6 +292,10 @@ export function OfficeCanvas({
     const dpr = window.devicePixelRatio || 1;
 
     const step = (now: number) => {
+      if (isGameOpen) {
+        raf = requestAnimationFrame(step);
+        return;
+      }
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
 
@@ -594,7 +600,7 @@ export function OfficeCanvas({
 
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [containerSize, zones, onMove, selectedUser, zoom, cameraOffset, campusViewMode]);
+  }, [containerSize, zones, onMove, selectedUser, zoom, cameraOffset, campusViewMode, isGameOpen]);
 
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
 

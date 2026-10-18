@@ -301,6 +301,7 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
             onZoneLeave={leaveZone}
             onZoneChange={setCurrentZone}
             onStartDm={handleStartDm}
+            isGameOpen={gameOpen}
           />
           <CallDock />
           {/* Movement hint & Zone badge */}

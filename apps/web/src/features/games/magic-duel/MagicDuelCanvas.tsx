@@ -52,13 +52,25 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
   const audioRef = useRef(audio);
   audioRef.current = audio;
 
-  const [gameState, setGameState] = useState<GameWorldState | null>(null);
+  const gameStateRef = useRef<GameWorldState | null>(null);
+  const [hasInitialState, setHasInitialState] = useState(false);
+  const hasInitialStateRef = useRef(false);
+  const patternsRef = useRef<Map<string, CanvasPattern>>(new Map());
+
   const [selectedSpell, setSelectedSpell] = useState<SpellType>('fireball');
   const selectedSpellRef = useRef<SpellType>('fireball');
   selectedSpellRef.current = selectedSpell;
 
   const [activeMap, setActiveMap] = useState<GameMapTheme>('catacombs');
   const [isConnected, setIsConnected] = useState(false);
+
+  const [cooldowns, setCooldowns] = useState<Record<SpellType, number>>({
+    fireball: 0,
+    frost: 0,
+    lightning: 0,
+    shield: 0,
+    dash: 0,
+  });
 
   // Smooth Camera & Entity Prediction states
   const camPosRef = useRef<{ x: number; y: number }>({ x: 1000, y: 700 });
@@ -254,8 +266,12 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
     const onGameState = (state: GameWorldState) => {
       setIsConnected(true);
-      setGameState(state);
-      setActiveMap(state.mapId);
+      gameStateRef.current = state;
+      if (!hasInitialStateRef.current) {
+        hasInitialStateRef.current = true;
+        setHasInitialState(true);
+        setActiveMap(state.mapId);
+      }
 
       // Detect health drops to spawn floating combat numbers and play audio
       const prevMap = prevPlayersHealthRef.current;
@@ -435,7 +451,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       lastFrameTimeRef.current = now;
 
       // Find local player
-      const state = gameState;
+      const state = gameStateRef.current;
       const myId = userRef.current?.id;
       const localPlayer = state?.players.find((p) => p.id === myId) || state?.players.find((p) => !p.isBot) || null;
 
@@ -596,14 +612,22 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       const mapW = state?.mapWidth || 2000;
       const mapH = state?.mapHeight || 1400;
 
-      // Render Arena Floor Pattern
-      const floorImg = textures.floors[state?.mapId || 'catacombs'];
-      if (floorImg && floorImg.complete && floorImg.width > 0) {
-        const ptrn = ctx.createPattern(floorImg, 'repeat');
-        if (ptrn) {
-          ctx.fillStyle = ptrn;
-          ctx.fillRect(0, 0, mapW, mapH);
+      // Render Arena Floor Pattern (Cached to eliminate GPU pattern reallocation)
+      const currentMapId = state?.mapId || 'catacombs';
+      let ptrn = patternsRef.current.get(currentMapId);
+      if (!ptrn) {
+        const floorImg = textures.floors[currentMapId];
+        if (floorImg && floorImg.complete && floorImg.width > 0) {
+          const created = ctx.createPattern(floorImg, 'repeat');
+          if (created) {
+            patternsRef.current.set(currentMapId, created);
+            ptrn = created;
+          }
         }
+      }
+      if (ptrn) {
+        ctx.fillStyle = ptrn;
+        ctx.fillRect(0, 0, mapW, mapH);
       } else {
         ctx.fillStyle = '#1e293b';
         ctx.fillRect(0, 0, mapW, mapH);
@@ -687,10 +711,14 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
           ctx.rotate(angle);
 
           if (proj.spellType === 'fireball') {
-            // Glowing Fireball
+            // High-perf outer glow ring
+            ctx.fillStyle = 'rgba(249, 115, 22, 0.35)';
+            ctx.beginPath();
+            ctx.arc(0, 0, proj.radius + 6, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Glowing Fireball body
             ctx.fillStyle = '#ea580c';
-            ctx.shadowColor = '#f97316';
-            ctx.shadowBlur = 15;
             ctx.beginPath();
             ctx.arc(0, 0, proj.radius, 0, Math.PI * 2);
             ctx.fill();
@@ -701,10 +729,14 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
             ctx.arc(2, 0, proj.radius * 0.5, 0, Math.PI * 2);
             ctx.fill();
           } else if (proj.spellType === 'frost') {
+            // High-perf outer glow disc
+            ctx.fillStyle = 'rgba(14, 165, 233, 0.35)';
+            ctx.beginPath();
+            ctx.arc(0, 0, 14, 0, Math.PI * 2);
+            ctx.fill();
+
             // Frost Shard Diamond
             ctx.fillStyle = '#38bdf8';
-            ctx.shadowColor = '#0ea5e9';
-            ctx.shadowBlur = 12;
             ctx.beginPath();
             ctx.moveTo(15, 0);
             ctx.lineTo(-8, -8);
@@ -713,10 +745,12 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
             ctx.closePath();
             ctx.fill();
           } else {
+            // High-perf outer glow rect
+            ctx.fillStyle = 'rgba(168, 85, 247, 0.4)';
+            ctx.fillRect(-24, -6, 48, 12);
+
             // Lightning Bolt Beam
             ctx.fillStyle = '#c084fc';
-            ctx.shadowColor = '#a855f7';
-            ctx.shadowBlur = 16;
             ctx.fillRect(-20, -3, 40, 6);
 
             ctx.fillStyle = '#ffffff';
@@ -777,11 +811,18 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
           const slice = Math.round(((drawAngle % 360) + 360) % 360 / 22.5) % 16;
           const wizardImg = textures.wizards[slice];
 
-          // Hit flash / Dashing tint
+          // Hit flash / Dashing aura effects (zero ctx.filter overhead)
+          if (player.isDashing) {
+            ctx.fillStyle = 'rgba(56, 189, 248, 0.35)';
+            ctx.beginPath();
+            ctx.arc(0, 0, 30, 0, Math.PI * 2);
+            ctx.fill();
+          }
           if (player.hitFlashTimer > 0) {
-            ctx.filter = 'brightness(2.2) drop-shadow(0 0 10px #ef4444)';
-          } else if (player.isDashing) {
-            ctx.filter = 'drop-shadow(0 0 12px #38bdf8)';
+            ctx.fillStyle = 'rgba(239, 68, 68, 0.45)';
+            ctx.beginPath();
+            ctx.arc(0, 0, 26, 0, Math.PI * 2);
+            ctx.fill();
           }
 
           if (wizardImg && wizardImg.complete && wizardImg.width > 0) {
@@ -794,19 +835,22 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
             ctx.fill();
           }
 
-          ctx.filter = 'none';
-
-          // Arcane Shield Bubble
+          // Arcane Shield Bubble (Vector double ring, no shadow blur)
           if (player.hasShield) {
             ctx.save();
             ctx.strokeStyle = '#38bdf8';
             ctx.fillStyle = 'rgba(56, 189, 248, 0.18)';
             ctx.lineWidth = 3;
-            ctx.shadowColor = '#38bdf8';
-            ctx.shadowBlur = 10;
             ctx.beginPath();
             ctx.arc(0, 0, 32, 0, Math.PI * 2);
             ctx.fill();
+            ctx.stroke();
+
+            // Outer ring aura
+            ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(0, 0, 36, 0, Math.PI * 2);
             ctx.stroke();
             ctx.restore();
           }
@@ -818,11 +862,12 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
           ctx.font = 'bold 11px sans-serif';
           ctx.textAlign = 'center';
 
-          // Player name
+          // Player name with clean text shadow
+          const playerName = player.name + (player.isBot ? ' [BOT]' : '');
+          ctx.fillStyle = '#000000';
+          ctx.fillText(playerName, drawX + 1, drawY - 35);
           ctx.fillStyle = isMe ? '#38bdf8' : '#f8fafc';
-          ctx.shadowColor = '#000000';
-          ctx.shadowBlur = 4;
-          ctx.fillText(player.name + (player.isBot ? ' [BOT]' : ''), drawX, drawY - 36);
+          ctx.fillText(playerName, drawX, drawY - 36);
 
           // Mini Health Bar
           const barW = 44;
@@ -840,7 +885,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         }
       }
 
-      // Render Floating Combat Numbers
+      // Render Floating Combat Numbers (Offset drop shadow, zero blur lag)
       const aliveFloating: FloatingNumber[] = [];
       for (const fn of floatingNumbersRef.current) {
         const age = (now - fn.createdAt) / 900;
@@ -848,10 +893,10 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
           ctx.save();
           ctx.font = 'bold 16px sans-serif';
           ctx.textAlign = 'center';
-          ctx.fillStyle = fn.color;
           ctx.globalAlpha = 1 - age;
-          ctx.shadowColor = '#000000';
-          ctx.shadowBlur = 6;
+          ctx.fillStyle = '#000000';
+          ctx.fillText(fn.text, fn.x + 1, fn.y - age * 35 + 1);
+          ctx.fillStyle = fn.color;
           ctx.fillText(fn.text, fn.x, fn.y - age * 35);
           ctx.restore();
           aliveFloating.push(fn);
@@ -964,7 +1009,20 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [gameState, user?.id]);
+  }, []); // Run continuously with uninterrupted vsync
+
+  // Periodic cooldown badge update (100ms throttled to eliminate React DOM thrashing)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const state = gameStateRef.current;
+      const currentUserId = userRef.current?.id;
+      const lp = state?.players.find((p) => p.id === currentUserId) || state?.players.find((p) => !p.isBot);
+      if (lp) {
+        setCooldowns({ ...lp.cooldowns });
+      }
+    }, 100);
+    return () => clearInterval(timer);
+  }, []);
 
   // Handle map selection
   const handleSelectMap = (mapId: GameMapTheme) => {
@@ -974,9 +1032,6 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     socket.emit('game:select-map', { workspaceId, zoneId, mapId });
   };
 
-  const myId = userRef.current?.id;
-  const localPlayer = gameState?.players.find((p) => p.id === myId) || gameState?.players.find((p) => !p.isBot) || null;
-
   const spellsList: { type: SpellType; label: string; key: string; iconName: string; mana: number }[] = [
     { type: 'fireball', label: 'Fireball', key: '1', iconName: 'fire', mana: 15 },
     { type: 'frost', label: 'Frost', key: '2', iconName: 'frost', mana: 12 },
@@ -985,37 +1040,13 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     { type: 'dash', label: 'Dash', key: 'SPC', iconName: 'dash', mana: 20 },
   ];
 
-  // Auto-resize canvas buffer to match container rect for sharp, fluid rendering
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const handleResize = () => {
-      const rect = canvas.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const w = Math.round(rect.width * dpr);
-        const h = Math.round(rect.height * dpr);
-        if (canvas.width !== w || canvas.height !== h) {
-          canvas.width = w;
-          canvas.height = h;
-        }
-      }
-    };
-
-    handleResize();
-    const ro = new ResizeObserver(handleResize);
-    ro.observe(canvas);
-    return () => ro.disconnect();
-  }, []);
-
   return (
     <div className="relative h-full w-full select-none overflow-hidden bg-slate-950 font-sans text-white">
       {/* Canvas */}
       <canvas
         ref={canvasRef}
-        width={1000}
-        height={650}
+        width={1280}
+        height={720}
         className="h-full w-full cursor-crosshair object-cover"
         onTouchStart={(e) => {
           isTouchDeviceRef.current = true;
@@ -1077,13 +1108,13 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       </div>
 
       {/* Loading Overlay if waiting for initial game state */}
-      {!gameState && (
+      {!hasInitialState && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-sm">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-sky-500/10 border border-sky-500/30 text-3xl animate-bounce">
             ⚡
           </div>
           <h3 className="mt-4 text-base font-bold text-slate-100">Joining Magic Duel Arena...</h3>
-          <p className="mt-1 text-xs text-slate-400">Synchronizing 30Hz server physics & sparring bot...</p>
+          <p className="mt-1 text-xs text-slate-400">Synchronizing 60Hz server physics & sparring bot...</p>
           <button
             onClick={() => {
               if (token) {
@@ -1102,7 +1133,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-2xl border border-slate-700/80 bg-slate-950/90 p-2 shadow-2xl backdrop-blur-md">
         {spellsList.map((sp) => {
           const isSelected = selectedSpell === sp.type;
-          const cd = localPlayer?.cooldowns[sp.type] || 0;
+          const cd = cooldowns[sp.type] || 0;
           return (
             <button
               key={sp.type}
