@@ -1305,24 +1305,7 @@ function drawArchitecturalDoor(
     ctx.fill();
   }
 
-  // 2. Dotted Architectural Swing Path Arc
-  ctx.beginPath();
-  ctx.setLineDash([2.5 * s, 3 * s]);
-  ctx.strokeStyle = isLocked ? 'rgba(239, 68, 68, 0.40)' : 'rgba(100, 116, 139, 0.45)';
-  ctx.lineWidth = 1.2 * s;
-  if (isBottom) {
-    ctx.arc(hx, hy, doorLen, 0, -Math.PI / 2, true);
-  } else if (isTop) {
-    ctx.arc(hx, hy, doorLen, 0, Math.PI / 2, false);
-  } else if (isRight) {
-    ctx.arc(hx, hy, doorLen, Math.PI / 2, Math.PI, false);
-  } else {
-    ctx.arc(hx, hy, doorLen, Math.PI / 2, 0, true);
-  }
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // 3. Realistic Door Leaf Body with drop shadow
+  // 2. Realistic Door Leaf Body with drop shadow
   ctx.lineCap = 'round';
 
   // Drop shadow
@@ -1664,42 +1647,7 @@ function drawFurniture(
     ctx.lineWidth = 1.5 * s;
     ctx.stroke();
 
-    // 2. Interactive AV Presentation Display & Whiteboard (placed inside room on media credenza)
-    const screenW = Math.min(W * 0.42, 110 * s);
-    const screenH = 12 * s;
-    const screenY = Y + 28 * s; // Positioned safely inside the room, clearly not a doorway
-
-    // Rolling media credenza stand
-    ctx.strokeStyle = '#64748b';
-    ctx.lineWidth = 1.5 * s;
-    ctx.beginPath();
-    ctx.moveTo(cx - 24 * s, screenY + screenH + 2 * s);
-    ctx.lineTo(cx + 24 * s, screenY + screenH + 2 * s);
-    ctx.stroke();
-
-    // Display bezel
-    roundRect(ctx, cx - screenW / 2, screenY, screenW, screenH, 2.5 * s);
-    ctx.fillStyle = '#0f172a';
-    ctx.fill();
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 1 * s;
-    ctx.stroke();
-
-    // Active presentation charts / dashboard bars (cyan, indigo, emerald)
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillRect(cx - screenW / 2 + 6 * s, screenY + 2.5 * s, 18 * s, 7 * s);
-    ctx.fillStyle = '#818cf8';
-    ctx.fillRect(cx - screenW / 2 + 28 * s, screenY + 3.5 * s, 14 * s, 6 * s);
-    ctx.fillStyle = '#34d399';
-    ctx.fillRect(cx - screenW / 2 + 46 * s, screenY + 2 * s, 22 * s, 7.5 * s);
-
-    // Active video conference LED
-    ctx.beginPath();
-    ctx.arc(cx + screenW / 2 - 6 * s, screenY + screenH / 2, 2 * s, 0, Math.PI * 2);
-    ctx.fillStyle = '#22c55e';
-    ctx.fill();
-
-    // 3. Conference Table with center cable trough
+    // 2. Conference Table with center cable trough
     const tw = Math.min(W, H) * 0.52;
     const th = Math.min(W, H) * 0.32;
     ctx.beginPath();
