@@ -1,5 +1,6 @@
 import { ChatMessage, PresenceState, Vec2, Zone } from './models';
 import { UserStatus } from './enums';
+import type { GameClientInput, GameMapTheme, GameWorldState } from './game';
 
 /**
  * Strongly-typed Socket.IO event contract shared by client and server.
@@ -73,6 +74,11 @@ export interface ClientToServerEvents {
   'rtc:call-end': (payload: { toUserId: string }) => void;
   'rtc:screen-share-start': (payload: { groupId: string }) => void;
   'rtc:screen-share-stop': (payload: { groupId: string }) => void;
+  // Magic Duel game events
+  'game:join': (payload: { workspaceId: string; zoneId: string }) => void;
+  'game:leave': (payload: { workspaceId: string; zoneId: string }) => void;
+  'game:input': (payload: { workspaceId: string; zoneId: string; input: GameClientInput }) => void;
+  'game:select-map': (payload: { workspaceId: string; zoneId: string; mapId: GameMapTheme }) => void;
 }
 
 export interface LockedRoomState {
@@ -117,6 +123,9 @@ export interface ServerToClientEvents {
   'rtc:call-end': (payload: { fromUserId: string }) => void;
   'rtc:screen-share-start': (payload: { fromUserId: string; groupId: string }) => void;
   'rtc:screen-share-stop': (payload: { fromUserId: string; groupId: string }) => void;
+  // Magic Duel game events
+  'game:state': (payload: GameWorldState) => void;
+  'game:event': (payload: { type: string; message: string; data?: unknown }) => void;
 
   'error': (payload: { code: string; message: string }) => void;
 }

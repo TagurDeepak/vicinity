@@ -76,6 +76,19 @@ export function getZoneAt(zones: Zone[], p: Vec2): Zone | null {
   return null;
 }
 
+export function isGameZone(zone?: { name?: string; type?: string } | null): boolean {
+  if (!zone?.name) return false;
+  const n = zone.name.toLowerCase();
+  return (
+    n.includes('game') ||
+    n.includes('gam') ||
+    n.includes('arcade') ||
+    n.includes('duel') ||
+    n.includes('magic') ||
+    n.includes('breakout')
+  );
+}
+
 export function getCameraTransform(
   container: { width: number; height: number },
   currentPos: Vec2,
@@ -1676,7 +1689,9 @@ function drawZone(
   }
 
   // 3. Furniture & Props
-  if (isCampus) {
+  if (isGameZone(z)) {
+    drawArcadeFurniture(ctx, X, Y, W, H, s);
+  } else if (isCampus) {
     drawCampusFurniture(ctx, z.name, z.type, X, Y, W, H, s);
   } else {
     drawFurniture(ctx, z.type, X, Y, W, H, s);
@@ -1685,12 +1700,20 @@ function drawZone(
   // 4. Header pill (icon + name)
   if (isCampus) {
     ctx.font = `bold ${11 * s}px Inter, sans-serif`;
-    const label = isLocked ? `🔒 ${z.name} (LOCKED)` : `🔊  ${z.name}`;
+    const label = isLocked
+      ? `🔒 ${z.name} (LOCKED)`
+      : isGameZone(z)
+        ? `🎮  ${z.name} [MAGIC DUEL]`
+        : `🔊  ${z.name}`;
     const tw = ctx.measureText(label).width;
     roundRect(ctx, X + 10 * s, Y + 10 * s, tw + 18 * s, 22 * s, 6 * s);
-    ctx.fillStyle = isLocked ? 'rgba(239, 68, 68, 0.9)' : 'rgba(30, 41, 59, 0.88)';
+    ctx.fillStyle = isLocked
+      ? 'rgba(239, 68, 68, 0.9)'
+      : isGameZone(z)
+        ? 'rgba(14, 165, 233, 0.92)'
+        : 'rgba(30, 41, 59, 0.88)';
     ctx.fill();
-    ctx.strokeStyle = isLocked ? '#ef4444' : 'rgba(255, 255, 255, 0.2)';
+    ctx.strokeStyle = isLocked ? '#ef4444' : isGameZone(z) ? '#38bdf8' : 'rgba(255, 255, 255, 0.2)';
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.fillStyle = '#ffffff';
@@ -1699,15 +1722,23 @@ function drawZone(
     ctx.textBaseline = 'alphabetic';
   } else {
     ctx.font = `600 ${13 * s}px Inter, sans-serif`;
-    const label = isLocked ? `🔒 ${z.name} (LOCKED)` : `${style.icon}  ${z.name}`;
+    const label = isLocked
+      ? `🔒 ${z.name} (LOCKED)`
+      : isGameZone(z)
+        ? `🎮  ${z.name} [MAGIC DUEL]`
+        : `${style.icon}  ${z.name}`;
     const tw = ctx.measureText(label).width;
     roundRect(ctx, X + 12 * s, Y + 12 * s, tw + 18 * s, 26 * s, 13 * s);
-    ctx.fillStyle = isLocked ? '#fef2f2' : 'rgba(255,255,255,0.94)';
+    ctx.fillStyle = isLocked
+      ? '#fef2f2'
+      : isGameZone(z)
+        ? 'rgba(240, 249, 255, 0.96)'
+        : 'rgba(255,255,255,0.94)';
     ctx.fill();
-    ctx.strokeStyle = isLocked ? '#ef4444' : style.border;
-    ctx.lineWidth = isLocked ? 1.5 : 1;
+    ctx.strokeStyle = isLocked ? '#ef4444' : isGameZone(z) ? '#0284c7' : style.border;
+    ctx.lineWidth = isLocked || isGameZone(z) ? 1.5 : 1;
     ctx.stroke();
-    ctx.fillStyle = isLocked ? '#b91c1c' : '#1e293b';
+    ctx.fillStyle = isLocked ? '#b91c1c' : isGameZone(z) ? '#0369a1' : '#1e293b';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, X + 21 * s, Y + 25 * s);
     ctx.textBaseline = 'alphabetic';
@@ -1755,6 +1786,101 @@ function drawCeramicTiles(ctx: CanvasRenderingContext2D, X: number, Y: number, W
     ctx.lineTo(X + W, y);
     ctx.stroke();
   }
+}
+
+function drawArcadeFurniture(
+  ctx: CanvasRenderingContext2D,
+  X: number,
+  Y: number,
+  W: number,
+  H: number,
+  s: number,
+): void {
+  const cx = X + W / 2;
+  const cy = Y + H / 2;
+
+  // 1. Neon battle arena ring on floor
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.min(W, H) * 0.32, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
+  ctx.fill();
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2 * s;
+  ctx.setLineDash([8 * s, 6 * s]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 2. Twin Arcade Cabinets
+  const arcW = 56 * s;
+  const arcH = 42 * s;
+
+  // Left Cabinet (Player 1 Blue)
+  const arc1X = cx - arcW - 10 * s;
+  const arc1Y = cy - arcH / 2;
+  roundRect(ctx, arc1X, arc1Y, arcW, arcH, 6 * s);
+  ctx.fillStyle = '#0f172a';
+  ctx.fill();
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2 * s;
+  ctx.stroke();
+
+  // Screen glow
+  roundRect(ctx, arc1X + 8 * s, arc1Y + 6 * s, arcW - 16 * s, 18 * s, 3 * s);
+  ctx.fillStyle = '#0284c7';
+  ctx.fill();
+
+  // Joystick & buttons
+  ctx.beginPath();
+  ctx.arc(arc1X + 16 * s, arc1Y + 32 * s, 3.5 * s, 0, Math.PI * 2);
+  ctx.fillStyle = '#ef4444';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(arc1X + 32 * s, arc1Y + 30 * s, 2.5 * s, 0, Math.PI * 2);
+  ctx.fillStyle = '#38bdf8';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(arc1X + 42 * s, arc1Y + 32 * s, 2.5 * s, 0, Math.PI * 2);
+  ctx.fillStyle = '#facc15';
+  ctx.fill();
+
+  // Right Cabinet (Player 2 Red)
+  const arc2X = cx + 10 * s;
+  const arc2Y = cy - arcH / 2;
+  roundRect(ctx, arc2X, arc2Y, arcW, arcH, 6 * s);
+  ctx.fillStyle = '#0f172a';
+  ctx.fill();
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 2 * s;
+  ctx.stroke();
+
+  // Screen glow
+  roundRect(ctx, arc2X + 8 * s, arc2Y + 6 * s, arcW - 16 * s, 18 * s, 3 * s);
+  ctx.fillStyle = '#b91c1c';
+  ctx.fill();
+
+  // Joystick & buttons
+  ctx.beginPath();
+  ctx.arc(arc2X + 16 * s, arc2Y + 32 * s, 3.5 * s, 0, Math.PI * 2);
+  ctx.fillStyle = '#38bdf8';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(arc2X + 32 * s, arc2Y + 30 * s, 2.5 * s, 0, Math.PI * 2);
+  ctx.fillStyle = '#ef4444';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(arc2X + 42 * s, arc2Y + 32 * s, 2.5 * s, 0, Math.PI * 2);
+  ctx.fillStyle = '#facc15';
+  ctx.fill();
+
+  // Marquee Banner above cabinets
+  ctx.font = `bold ${10 * s}px Inter, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#facc15';
+  ctx.shadowColor = '#facc15';
+  ctx.shadowBlur = 8;
+  ctx.fillText('⚡ MAGIC DUEL ARENA ⚡', cx, cy - arcH / 2 - 10 * s);
+  ctx.restore();
 }
 
 function drawFurniture(

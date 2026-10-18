@@ -379,6 +379,29 @@ export function RoomsModal({
           {/* TAB 2: CREATE CUSTOM ROOM */}
           {tab === 'create' && (
             <form onSubmit={handleCreateRoom} className="space-y-3">
+              <div className="rounded-xl border border-sky-300 bg-sky-50/80 p-3 flex items-center justify-between gap-2 shadow-sm">
+                <div>
+                  <div className="text-xs font-bold text-sky-950 flex items-center gap-1.5">
+                    <span>🎮</span> Quick Add: Game Room (Magic Duel)
+                  </div>
+                  <div className="text-[11px] text-sky-800">
+                    Arcade arena where floor members play multiplayer wizard duels!
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setName('Game Room');
+                    setType('open');
+                    setAudioIsolated(false);
+                    setSizePreset('medium');
+                  }}
+                  className="shrink-0 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 transition shadow-sm"
+                >
+                  ⚡ Auto-Fill
+                </button>
+              </div>
+
               <TextField
                 name="roomName"
                 label="Room Name"

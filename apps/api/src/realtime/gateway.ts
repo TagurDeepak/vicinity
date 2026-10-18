@@ -7,6 +7,7 @@ import { ProximityEngine, userRoom } from './proximity.engine';
 import type { SocketUser } from './socket-auth';
 import * as presence from './redis-state.service';
 import { registerSignaling } from './signaling';
+import { MagicDuelEngine } from './magic-duel.engine';
 
 interface LockedRoom {
   zoneId: string;
@@ -21,7 +22,10 @@ const lockedRooms = new Map<string, Map<string, LockedRoom>>();
  * avatar movement, zone transitions, chat fast-path, and WebRTC signaling.
  */
 export function registerGateway(io: VicinityServer, proximity: ProximityEngine): void {
+  const magicDuel = new MagicDuelEngine(io);
+
   io.on('connection', (socket) => {
+    let activeGameRoom: { workspaceId: string; zoneId: string } | null = null;
     const user = socket.data.user as SocketUser;
     // Personal room → lets signaling / proximity target this user directly.
     void socket.join(userRoom(user.id));
@@ -189,7 +193,32 @@ export function registerGateway(io: VicinityServer, proximity: ProximityEngine):
     // WebRTC signaling relay.
     registerSignaling(io, socket);
 
+    // Magic Duel game events
+    socket.on('game:join', ({ workspaceId, zoneId }) => {
+      activeGameRoom = { workspaceId, zoneId };
+      magicDuel.joinGame(workspaceId, zoneId, user.id, user.displayName, socket);
+    });
+
+    socket.on('game:leave', ({ workspaceId, zoneId }) => {
+      if (activeGameRoom?.workspaceId === workspaceId && activeGameRoom?.zoneId === zoneId) {
+        activeGameRoom = null;
+      }
+      magicDuel.leaveGame(workspaceId, zoneId, user.id);
+    });
+
+    socket.on('game:input', ({ workspaceId, zoneId, input }) => {
+      magicDuel.handleInput(workspaceId, zoneId, user.id, input);
+    });
+
+    socket.on('game:select-map', ({ workspaceId, zoneId, mapId }) => {
+      magicDuel.selectMap(workspaceId, zoneId, mapId);
+    });
+
     socket.on('disconnect', async () => {
+      if (activeGameRoom) {
+        magicDuel.leaveGame(activeGameRoom.workspaceId, activeGameRoom.zoneId, user.id);
+        activeGameRoom = null;
+      }
       const workspaceId = (socket.data.user as SocketUser).workspaceId;
       if (workspaceId) {
         const current = await presence.getPresence(workspaceId, user.id);

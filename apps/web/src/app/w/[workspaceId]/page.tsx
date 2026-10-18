@@ -12,8 +12,9 @@ import { InviteModal } from '@/features/office/InviteModal';
 import { KnockNotification, type KnockEvent, type LockedRoomInfo } from '@/features/office/KnockNotification';
 import { MediaControls } from '@/features/office/MediaControls';
 import { MembersPanel } from '@/features/office/MembersPanel';
-import { OfficeCanvas } from '@/features/office/OfficeCanvas';
+import { OfficeCanvas, isGameZone } from '@/features/office/OfficeCanvas';
 import { RoomsModal } from '@/features/office/RoomsModal';
+import { MagicDuelModal } from '@/features/games/magic-duel/MagicDuelModal';
 import { getDoorwayForZone } from '@/features/office/collision';
 import { useOffice } from '@/features/office/useOffice';
 import { useWebRtc } from '@/features/office/useWebRtc';
@@ -31,6 +32,7 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
   const [currentZone, setCurrentZone] = useState<Zone | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [roomsOpen, setRoomsOpen] = useState(false);
+  const [gameOpen, setGameOpen] = useState(false);
   const [lockedRooms, setLockedRooms] = useState<Map<string, LockedRoomInfo>>(new Map());
   const [knocks, setKnocks] = useState<KnockEvent[]>([]);
   const [letInMessage, setLetInMessage] = useState<string | null>(null);
@@ -243,6 +245,15 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
           >
             🎨 Layouts
           </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setGameOpen(true)}
+            title="Play Magic Duel Multiplayer Arena with floor colleagues"
+            className="border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100 font-semibold"
+          >
+            🎮 Game Room
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => setRoomsOpen(true)}>
             🏢 Rooms
           </Button>
@@ -326,6 +337,18 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
                     {lockedRooms.has(currentZone.id) ? '🔒 Locked (Unlock)' : '🔓 Lock Door'}
                   </button>
                 )}
+                {isGameZone(currentZone) && (
+                  <button
+                    onClick={() => setGameOpen(true)}
+                    className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-gradient-to-r from-sky-500 to-indigo-600 px-3 py-1 text-xs font-bold text-white shadow-md shadow-sky-500/25 hover:from-sky-600 hover:to-indigo-700 transition animate-pulse"
+                    title="Click to enter Magic Duel Arena!"
+                  >
+                    <span>🎮 Play Magic Duel</span>
+                    <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide">
+                      ARENA
+                    </span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -407,6 +430,14 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
         nearbyLockedRoom={nearbyLockedRoom}
         onKnock={handleKnock}
         letInMessage={letInMessage}
+      />
+
+      <MagicDuelModal
+        workspaceId={workspaceId}
+        zoneId={currentZone?.id || 'game-room-default'}
+        zoneName={currentZone?.name || 'Game Room'}
+        isOpen={gameOpen}
+        onClose={() => setGameOpen(false)}
       />
     </div>
   );
