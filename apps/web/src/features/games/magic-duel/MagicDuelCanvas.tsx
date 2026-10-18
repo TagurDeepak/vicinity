@@ -521,6 +521,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
   const smoothEntitiesRef = useRef<Map<string, { x: number; y: number; angle: number }>>(new Map());
   const smoothProjectilesRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const lastFrameTimeRef = useRef<number>(performance.now());
+  const assignedPlayerIdRef = useRef<string | null>(null);
 
   const selectSpell = (type: SpellType) => {
     setSelectedSpell(type);
@@ -711,6 +712,13 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       isConnectedRef.current = false;
     });
 
+    const onGameInit = ({ playerId }: { playerId: string }) => {
+      if (playerId) {
+        assignedPlayerIdRef.current = playerId;
+      }
+    };
+    socket.on('game:init', onGameInit);
+
     const onGameState = (state: GameWorldState) => {
       try {
         if (!state) return;
@@ -725,7 +733,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
         // Detect health drops to spawn floating combat numbers and play audio
         const prevMap = prevPlayersHealthRef.current;
-        const myId = userRef.current?.id;
+        const myId = assignedPlayerIdRef.current || userRef.current?.id;
         if (Array.isArray(state.players)) {
           for (const p of state.players) {
             const prevHp = prevMap.get(p.id);
@@ -759,6 +767,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
     return () => {
       socket.off('connect', joinRoom);
+      socket.off('game:init', onGameInit);
       socket.off('game:state', onGameState);
       socket.emit('game:leave', { workspaceId, zoneId });
     };
@@ -842,6 +851,27 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     };
   }, []);
 
+  // Window resize listener for immediate canvas buffer sync
+  useEffect(() => {
+    const handleResize = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        const rw = Math.round(rect.width);
+        const rh = Math.round(rect.height);
+        if (canvas.width !== rw || canvas.height !== rh) {
+          canvas.width = rw;
+          canvas.height = rh;
+        }
+      }
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Send input tick to server at 60 Hz
   useEffect(() => {
     const activeToken = token || 'guest-arcade';
@@ -902,6 +932,18 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       try {
         const canvas = canvasRef.current;
         if (!canvas) return;
+
+        // Auto-fit canvas buffer to exact container dimensions
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          const rw = Math.round(rect.width);
+          const rh = Math.round(rect.height);
+          if (canvas.width !== rw || canvas.height !== rh) {
+            canvas.width = rw;
+            canvas.height = rh;
+          }
+        }
+
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
@@ -913,7 +955,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
         // Find local player
         const state = gameStateRef.current;
-        const myId = userRef.current?.id;
+        const myId = assignedPlayerIdRef.current || userRef.current?.id;
         const localPlayer =
           state?.players?.find((p) => myId && p.id === myId) ||
           state?.players?.find((p) => p.id === 'local-wizard') ||
@@ -1068,14 +1110,11 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         }
       }
 
-      // 2. Smooth Damped Camera Tracking
-      const targetCamX = localPlayer ? localPredRef.current.x : width / 2;
-      const targetCamY = localPlayer ? localPredRef.current.y : height / 2;
-      const camSmoothRate = 1 - Math.exp(-18 * dt);
-      camPosRef.current.x += (targetCamX - camPosRef.current.x) * camSmoothRate;
-      camPosRef.current.y += (targetCamY - camPosRef.current.y) * camSmoothRate;
-      const camX = camPosRef.current.x;
-      const camY = camPosRef.current.y;
+      // 2. Lock Camera Directly on Local Player (Guarantees player icon is dead-centered)
+      const camX = localPlayer ? localPredRef.current.x : width / 2;
+      const camY = localPlayer ? localPredRef.current.y : height / 2;
+      camPosRef.current.x = camX;
+      camPosRef.current.y = camY;
 
       // 3. Smooth Remote Players & Bot Interpolation
       if (state?.players) {
@@ -1511,8 +1550,11 @@ useEffect(() => {
   const timer = setInterval(() => {
     try {
       const state = gameStateRef.current;
-      const currentUserId = userRef.current?.id;
-      const lp = state?.players?.find((p) => p.id === currentUserId) || state?.players?.find((p) => !p.isBot);
+      const currentUserId = assignedPlayerIdRef.current || userRef.current?.id;
+      const lp =
+        state?.players?.find((p) => currentUserId && p.id === currentUserId) ||
+        state?.players?.find((p) => p.id === 'local-wizard') ||
+        state?.players?.find((p) => !p.isBot);
       if (lp?.cooldowns) {
         setCooldowns({ ...lp.cooldowns });
       }
@@ -1544,9 +1586,7 @@ useEffect(() => {
       {/* Canvas */}
       <canvas
         ref={canvasRef}
-        width={1280}
-        height={720}
-        className="h-full w-full cursor-crosshair object-cover"
+        className="absolute inset-0 block h-full w-full cursor-crosshair"
         onTouchStart={(e) => {
           isTouchDeviceRef.current = true;
           const touch = e.touches[0];

@@ -124,6 +124,7 @@ export interface ServerToClientEvents {
   'rtc:screen-share-start': (payload: { fromUserId: string; groupId: string }) => void;
   'rtc:screen-share-stop': (payload: { fromUserId: string; groupId: string }) => void;
   // Magic Duel game events
+  'game:init': (payload: { playerId: string }) => void;
   'game:state': (payload: GameWorldState) => void;
   'game:event': (payload: { type: string; message: string; data?: unknown }) => void;
 

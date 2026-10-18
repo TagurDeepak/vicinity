@@ -253,7 +253,8 @@ export class MagicDuelEngine {
       room.timer = setInterval(() => this.tickRoom(key), 16); // 60 FPS authoritative server tick
     }
 
-    // Immediately send current snapshot
+    // Immediately send player assignment and current snapshot
+    socket.emit('game:init', { playerId: userId });
     socket.emit('game:state', this.buildSnapshot(room));
   }
 
