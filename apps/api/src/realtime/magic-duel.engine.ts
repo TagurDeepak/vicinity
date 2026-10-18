@@ -250,7 +250,7 @@ export class MagicDuelEngine {
 
     // Start tick loop if not running
     if (!room.timer) {
-      room.timer = setInterval(() => this.tickRoom(key), 33); // ~30 FPS server tick
+      room.timer = setInterval(() => this.tickRoom(key), 16); // 60 FPS authoritative server tick
     }
 
     // Immediately send current snapshot
@@ -409,7 +409,7 @@ export class MagicDuelEngine {
     const room = this.rooms.get(key);
     if (!room) return;
 
-    const dt = 0.033;
+    const dt = 0.0166; // 60 FPS delta
     room.matchTimer += dt;
 
     // Clean old visual effects

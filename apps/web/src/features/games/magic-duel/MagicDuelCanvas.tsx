@@ -20,6 +20,21 @@ interface FloatingNumber {
   createdAt: number;
 }
 
+function checkCircleRectCollision(cx: number, cy: number, radius: number, rx: number, ry: number, rw: number, rh: number): boolean {
+  const closestX = Math.max(rx, Math.min(cx, rx + rw));
+  const closestY = Math.max(ry, Math.min(cy, ry + rh));
+  const dx = cx - closestX;
+  const dy = cy - closestY;
+  return dx * dx + dy * dy < radius * radius;
+}
+
+function shortestAngleDiff(targetDeg: number, currentDeg: number): number {
+  let diff = (targetDeg - currentDeg) % 360;
+  if (diff < -180) diff += 360;
+  if (diff > 180) diff -= 360;
+  return diff;
+}
+
 interface MagicDuelCanvasProps {
   workspaceId: string;
   zoneId: string;
@@ -44,6 +59,13 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
   const [activeMap, setActiveMap] = useState<GameMapTheme>('catacombs');
   const [isConnected, setIsConnected] = useState(false);
+
+  // Smooth Camera & Entity Prediction states
+  const camPosRef = useRef<{ x: number; y: number }>({ x: 1000, y: 700 });
+  const localPredRef = useRef<{ x: number; y: number; initialized: boolean }>({ x: 1000, y: 700, initialized: false });
+  const smoothEntitiesRef = useRef<Map<string, { x: number; y: number; angle: number }>>(new Map());
+  const smoothProjectilesRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const lastFrameTimeRef = useRef<number>(performance.now());
 
   const selectSpell = (type: SpellType) => {
     setSelectedSpell(type);
@@ -345,7 +367,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     };
   }, []);
 
-  // Send input tick to server at 30 Hz
+  // Send input tick to server at 60 Hz
   useEffect(() => {
     if (!token) return;
     const socket = getSocket(token);
@@ -391,12 +413,12 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       };
 
       socket.emit('game:input', { workspaceId, zoneId, input });
-    }, 33);
+    }, 16); // 60 FPS input transmission
 
     return () => clearInterval(interval);
   }, [token, workspaceId, zoneId]);
 
-  // Main 60 FPS Render Loop
+  // Main 60-144 FPS Render Loop with Client Prediction and Entity Interpolation
   useEffect(() => {
     let animId: number;
 
@@ -408,16 +430,151 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
       const width = canvas.width;
       const height = canvas.height;
-      const now = Date.now();
+      const now = performance.now();
+      const dt = Math.min(0.05, (now - lastFrameTimeRef.current) / 1000);
+      lastFrameTimeRef.current = now;
 
       // Find local player
       const state = gameState;
       const myId = userRef.current?.id;
       const localPlayer = state?.players.find((p) => p.id === myId) || state?.players.find((p) => !p.isBot) || null;
 
-      // Camera view coordinates
-      const camX = localPlayer ? localPlayer.posX : width / 2;
-      const camY = localPlayer ? localPlayer.posY : height / 2;
+      // 1. Client-Side Prediction for Local Player (Zero Input Latency)
+      if (localPlayer) {
+        if (!localPredRef.current.initialized) {
+          localPredRef.current.x = localPlayer.posX;
+          localPredRef.current.y = localPlayer.posY;
+          localPredRef.current.initialized = true;
+          camPosRef.current.x = localPlayer.posX;
+          camPosRef.current.y = localPlayer.posY;
+        } else {
+          // Reconcile with authoritative server coordinates
+          const errX = localPlayer.posX - localPredRef.current.x;
+          const errY = localPlayer.posY - localPredRef.current.y;
+          const errDist = Math.hypot(errX, errY);
+
+          if (errDist > 140) {
+            // Large jump (teleport/respawn) -> snap
+            localPredRef.current.x = localPlayer.posX;
+            localPredRef.current.y = localPlayer.posY;
+          } else if (errDist > 0.5) {
+            const blendRate = 1 - Math.exp(-14 * dt);
+            localPredRef.current.x += errX * blendRate;
+            localPredRef.current.y += errY * blendRate;
+          }
+
+          // Advance prediction using current local input
+          const keys = keysDownRef.current;
+          let mx = 0;
+          let my = 0;
+          if (keys.has('KeyA') || keys.has('ArrowLeft') || keys.has('a')) mx -= 1;
+          if (keys.has('KeyD') || keys.has('ArrowRight') || keys.has('d')) mx += 1;
+          if (keys.has('KeyW') || keys.has('ArrowUp') || keys.has('w')) my -= 1;
+          if (keys.has('KeyS') || keys.has('ArrowDown') || keys.has('s')) my += 1;
+
+          if (touchMoveRef.current.active) {
+            const tdx = touchMoveRef.current.curX - touchMoveRef.current.startX;
+            const tdy = touchMoveRef.current.curY - touchMoveRef.current.startY;
+            const tlen = Math.hypot(tdx, tdy);
+            if (tlen > 10) {
+              mx = tdx / Math.max(tlen, 50);
+              my = tdy / Math.max(tlen, 50);
+            }
+          }
+
+          const mag = Math.hypot(mx, my);
+          if (mag > 1) {
+            mx /= mag;
+            my /= mag;
+          }
+
+          let speed = localPlayer.isDashing ? 720 : 240;
+
+          const pRadius = 24;
+          const mapW = state?.mapWidth || 2000;
+          const mapH = state?.mapHeight || 1400;
+
+          let predX = localPredRef.current.x + mx * speed * dt;
+          predX = Math.max(pRadius + 15, Math.min(mapW - pRadius - 15, predX));
+          if (state?.obstacles) {
+            let collidesX = false;
+            for (const obs of state.obstacles) {
+              if (checkCircleRectCollision(predX, localPredRef.current.y, pRadius, obs.x, obs.y, obs.w, obs.h)) {
+                collidesX = true;
+                break;
+              }
+            }
+            if (!collidesX) localPredRef.current.x = predX;
+          } else {
+            localPredRef.current.x = predX;
+          }
+
+          let predY = localPredRef.current.y + my * speed * dt;
+          predY = Math.max(pRadius + 15, Math.min(mapH - pRadius - 15, predY));
+          if (state?.obstacles) {
+            let collidesY = false;
+            for (const obs of state.obstacles) {
+              if (checkCircleRectCollision(localPredRef.current.x, predY, pRadius, obs.x, obs.y, obs.w, obs.h)) {
+                collidesY = true;
+                break;
+              }
+            }
+            if (!collidesY) localPredRef.current.y = predY;
+          } else {
+            localPredRef.current.y = predY;
+          }
+        }
+      }
+
+      // 2. Smooth Damped Camera Tracking
+      const targetCamX = localPlayer ? localPredRef.current.x : width / 2;
+      const targetCamY = localPlayer ? localPredRef.current.y : height / 2;
+      const camSmoothRate = 1 - Math.exp(-18 * dt);
+      camPosRef.current.x += (targetCamX - camPosRef.current.x) * camSmoothRate;
+      camPosRef.current.y += (targetCamY - camPosRef.current.y) * camSmoothRate;
+      const camX = camPosRef.current.x;
+      const camY = camPosRef.current.y;
+
+      // 3. Smooth Remote Players & Bot Interpolation
+      if (state?.players) {
+        const smoothMap = smoothEntitiesRef.current;
+        const entitySmoothRate = 1 - Math.exp(-24 * dt);
+        for (const p of state.players) {
+          if (p.id === localPlayer?.id) continue;
+          let sm = smoothMap.get(p.id);
+          if (!sm) {
+            sm = { x: p.posX, y: p.posY, angle: p.facingAngle };
+            smoothMap.set(p.id, sm);
+          } else {
+            const dist = Math.hypot(p.posX - sm.x, p.posY - sm.y);
+            if (dist > 150) {
+              sm.x = p.posX;
+              sm.y = p.posY;
+            } else {
+              sm.x += (p.posX - sm.x) * entitySmoothRate;
+              sm.y += (p.posY - sm.y) * entitySmoothRate;
+            }
+            sm.angle += shortestAngleDiff(p.facingAngle, sm.angle) * entitySmoothRate;
+          }
+        }
+      }
+
+      // 4. Smooth Projectile Extrapolation & Smoothing
+      if (state?.projectiles) {
+        const pMap = smoothProjectilesRef.current;
+        for (const proj of state.projectiles) {
+          let sm = pMap.get(proj.id);
+          if (!sm) {
+            sm = { x: proj.posX, y: proj.posY };
+            pMap.set(proj.id, sm);
+          } else {
+            sm.x += proj.velX * dt;
+            sm.y += proj.velY * dt;
+            sm.x += (proj.posX - sm.x) * 0.25;
+            sm.y += (proj.posY - sm.y) * 0.25;
+          }
+        }
+      }
 
       // Calculate aiming angle to mouse cursor
       const screenCenterX = width / 2;
@@ -518,9 +675,14 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
       // Render Projectiles
       if (state?.projectiles) {
+        const pMap = smoothProjectilesRef.current;
         for (const proj of state.projectiles) {
+          const smP = pMap.get(proj.id);
+          const pX = smP ? smP.x : proj.posX;
+          const pY = smP ? smP.y : proj.posY;
+
           ctx.save();
-          ctx.translate(proj.posX, proj.posY);
+          ctx.translate(pX, pY);
           const angle = Math.atan2(proj.velY, proj.velX);
           ctx.rotate(angle);
 
@@ -566,24 +728,31 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
       // Render Wizards
       if (state?.players) {
+        const smoothMap = smoothEntitiesRef.current;
         for (const player of state.players) {
+          const isMe = player.id === localPlayer?.id;
+          const sm = smoothMap.get(player.id);
+          const drawX = isMe ? localPredRef.current.x : sm ? sm.x : player.posX;
+          const drawY = isMe ? localPredRef.current.y : sm ? sm.y : player.posY;
+          const drawAngle = isMe ? currentAngleRef.current : sm ? sm.angle : player.facingAngle;
+
           if (!player.isAlive) {
             // Tombstone / elimination marker
             ctx.save();
             ctx.fillStyle = '#64748b';
             ctx.font = '12px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('💀 Respawning...', player.posX, player.posY);
+            ctx.fillText('💀 Respawning...', drawX, drawY);
             ctx.restore();
             continue;
           }
 
           ctx.save();
-          ctx.translate(player.posX, player.posY);
+          ctx.translate(drawX, drawY);
 
           // Aiming Laser line for local player
-          if (player.id === user?.id) {
-            const rad = (player.facingAngle * Math.PI) / 180;
+          if (isMe) {
+            const rad = (drawAngle * Math.PI) / 180;
             ctx.save();
             ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
             ctx.lineWidth = 1.5;
@@ -605,8 +774,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
           }
 
           // Wizard Sprite Selection (16 angles)
-          // 360 / 16 = 22.5 deg per slice
-          const slice = Math.round(player.facingAngle / 22.5) % 16;
+          const slice = Math.round(((drawAngle % 360) + 360) % 360 / 22.5) % 16;
           const wizardImg = textures.wizards[slice];
 
           // Hit flash / Dashing tint
@@ -643,7 +811,6 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
             ctx.restore();
           }
 
-          // Overhead Name & Health Bar
           ctx.restore();
 
           // Draw Overhead UI in world space
@@ -652,16 +819,16 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
           ctx.textAlign = 'center';
 
           // Player name
-          ctx.fillStyle = player.id === user?.id ? '#38bdf8' : '#f8fafc';
+          ctx.fillStyle = isMe ? '#38bdf8' : '#f8fafc';
           ctx.shadowColor = '#000000';
           ctx.shadowBlur = 4;
-          ctx.fillText(player.name + (player.isBot ? ' [BOT]' : ''), player.posX, player.posY - 36);
+          ctx.fillText(player.name + (player.isBot ? ' [BOT]' : ''), drawX, drawY - 36);
 
           // Mini Health Bar
           const barW = 44;
           const barH = 5;
-          const barX = player.posX - barW / 2;
-          const barY = player.posY - 32;
+          const barX = drawX - barW / 2;
+          const barY = drawY - 32;
 
           ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
           ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
@@ -818,6 +985,30 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     { type: 'dash', label: 'Dash', key: 'SPC', iconName: 'dash', mana: 20 },
   ];
 
+  // Auto-resize canvas buffer to match container rect for sharp, fluid rendering
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleResize = () => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w = Math.round(rect.width * dpr);
+        const h = Math.round(rect.height * dpr);
+        if (canvas.width !== w || canvas.height !== h) {
+          canvas.width = w;
+          canvas.height = h;
+        }
+      }
+    };
+
+    handleResize();
+    const ro = new ResizeObserver(handleResize);
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <div className="relative h-full w-full select-none overflow-hidden bg-slate-950 font-sans text-white">
       {/* Canvas */}
@@ -853,7 +1044,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
         <div className="flex items-center gap-2 rounded-xl border border-slate-700/80 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold backdrop-blur shadow-lg">
           <span className={`inline-block h-2.5 w-2.5 rounded-full ${isConnected ? 'bg-emerald-400 shadow-sm shadow-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-          <span className="text-slate-200">{isConnected ? 'Live Arena · 30Hz' : 'Connecting to Server...'}</span>
+          <span className="text-slate-200">{isConnected ? 'Live Arena · 60 FPS Ultra-Smooth' : 'Connecting to Server...'}</span>
         </div>
       </div>
 
