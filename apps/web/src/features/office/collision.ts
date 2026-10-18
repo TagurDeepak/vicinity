@@ -283,11 +283,11 @@ export interface Rect {
 
 /** Paved concrete road segments and outdoor patio bounds for Garden Campus */
 export const CAMPUS_PAVED_WALKWAYS: Rect[] = [
-  // Outer perimeter loop
-  { x: 275, y: 286, w: 1050, h: 52 }, // Top perimeter horizontal (reaches Coworking NW/NE doors)
-  { x: 275, y: 762, w: 1050, h: 52 }, // Bottom perimeter horizontal (reaches Coworking SW/SE doors)
-  { x: 476, y: 286, w: 52, h: 528 },  // Left perimeter vertical
-  { x: 1072, y: 286, w: 52, h: 528 }, // Right perimeter vertical
+  // Outer perimeter loop (centered symmetrically between rooms: y = 320 for Top, y = 780 for Bottom)
+  { x: 275, y: 296, w: 1050, h: 48 }, // Top perimeter horizontal (reaches Coworking NW/NE doors, center y = 320, 20px clear of walls)
+  { x: 275, y: 756, w: 1050, h: 48 }, // Bottom perimeter horizontal (reaches Coworking SW/SE doors, center y = 780, 20px clear of walls)
+  { x: 476, y: 296, w: 52, h: 508 },  // Left perimeter vertical (center x = 502, y: 296..804)
+  { x: 1072, y: 296, w: 52, h: 508 }, // Right perimeter vertical (center x = 1098, y: 296..804)
 
   // Connectors to Meeting Rooms (Alpha, Gamma, Beta, Delta)
   // Meeting rooms have doorways of width/height 76px. These connectors fully bridge the doorway to the perimeter walkways.
@@ -297,14 +297,14 @@ export const CAMPUS_PAVED_WALKWAYS: Rect[] = [
   { x: 1114, y: 628, w: 92, h: 84 },  // Delta (doorway left x: 1200, y: 632..708)
 
   // Connectors to Focus Pods
-  { x: 550, y: 255, w: 100, h: 40 },  // Focus Pod NW
-  { x: 940, y: 255, w: 100, h: 40 },  // Focus Pod NE
-  { x: 550, y: 805, w: 100, h: 40 },  // Focus Pod SW
-  { x: 940, y: 805, w: 100, h: 40 },  // Focus Pod SE
+  { x: 550, y: 255, w: 100, h: 68 },  // Focus Pod NW (connects y = 255 to Top corridor y = 323)
+  { x: 940, y: 255, w: 100, h: 68 },  // Focus Pod NE (connects y = 255 to Top corridor y = 323)
+  { x: 550, y: 780, w: 100, h: 65 },  // Focus Pod SW (connects Bottom corridor y = 780 to Pod door y = 845)
+  { x: 940, y: 780, w: 100, h: 65 },  // Focus Pod SE (connects Bottom corridor y = 780 to Pod door y = 845)
 
   // Entrances into Grand Fountain Plaza (aligned safely at centerline y = 550, 30px below Alpha/Beta bottom walls)
-  { x: 770, y: 286, w: 60, h: 96 },   // North entrance (centerline x = 800)
-  { x: 770, y: 720, w: 60, h: 96 },   // South entrance (centerline x = 800)
+  { x: 770, y: 320, w: 60, h: 65 },   // North entrance (centerline x = 800, connects y=320 to Plaza y=375)
+  { x: 770, y: 715, w: 60, h: 65 },   // South entrance (centerline x = 800, connects Plaza y=725 to y=780)
   { x: 476, y: 526, w: 120, h: 48 },  // West entrance (y: 526..574, centerline y = 550, 30px clear from y=520 wall)
   { x: 1004, y: 526, w: 120, h: 48 }, // East entrance (y: 526..574, centerline y = 550, 30px clear from y=520 wall)
 
@@ -556,7 +556,7 @@ export function hasLineOfSight(
         });
 
       if (!inOpenPlazaOrRoom) {
-        const cornerMargin = 11;
+        const cornerMargin = 8;
         if (
           !isPointAllowed({ x: x - cornerMargin, y }) ||
           !isPointAllowed({ x: x + cornerMargin, y }) ||
@@ -584,23 +584,23 @@ function getRoadCenteringPenalty(x: number, y: number, isCampus: boolean): numbe
   let minOffset = Infinity;
 
   // Left vertical corridor: centerline x = 502
-  if (x >= 476 && x <= 528 && y >= 286 && y <= 814) {
+  if (x >= 476 && x <= 528 && y >= 296 && y <= 804) {
     minOffset = Math.min(minOffset, Math.abs(x - 502));
   }
 
   // Right vertical corridor: centerline x = 1098
-  if (x >= 1072 && x <= 1124 && y >= 286 && y <= 814) {
+  if (x >= 1072 && x <= 1124 && y >= 296 && y <= 804) {
     minOffset = Math.min(minOffset, Math.abs(x - 1098));
   }
 
-  // Top perimeter horizontal corridor: centerline y = 312
-  if (y >= 286 && y <= 338 && x >= 275 && x <= 1325) {
-    minOffset = Math.min(minOffset, Math.abs(y - 312));
+  // Top perimeter horizontal corridor: centerline y = 320
+  if (y >= 296 && y <= 344 && x >= 275 && x <= 1325) {
+    minOffset = Math.min(minOffset, Math.abs(y - 320));
   }
 
-  // Bottom perimeter horizontal corridor: centerline y = 788
-  if (y >= 762 && y <= 814 && x >= 275 && x <= 1325) {
-    minOffset = Math.min(minOffset, Math.abs(y - 788));
+  // Bottom perimeter horizontal corridor: centerline y = 780
+  if (y >= 756 && y <= 804 && x >= 275 && x <= 1325) {
+    minOffset = Math.min(minOffset, Math.abs(y - 780));
   }
 
   // West & East entrances / crossroad: centerline y = 550

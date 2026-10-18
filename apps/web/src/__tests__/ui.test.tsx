@@ -161,6 +161,75 @@ describe('obstacle-avoiding pathfinding', () => {
     const betaEntranceWaypoint = pathBetaToFountain.find((pt: { x: number; y: number }) => pt.y > 500);
     expect(betaEntranceWaypoint).toBeDefined();
     expect(betaEntranceWaypoint!.y).toBeGreaterThanOrEqual(540);
+
+    // Test exiting Coworking North-West to Grand Plaza and other rooms
+    const pathFromNWToPlaza = findPath({ x: 300, y: 150 }, plazaCenter, campusGardenZones);
+    expect(pathFromNWToPlaza.length).toBeGreaterThan(0);
+
+    const { resolveMovement } = require('../features/office/collision');
+    let simPos = { x: 300, y: 150 };
+    const waypointsCopy = [...pathFromNWToPlaza];
+    let stepsTaken = 0;
+    while (waypointsCopy.length > 0 && stepsTaken < 300) {
+      stepsTaken++;
+      const nextPt = waypointsCopy[0]!;
+      const dx = nextPt.x - simPos.x;
+      const dy = nextPt.y - simPos.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 6) {
+        waypointsCopy.shift();
+      } else {
+        const move = Math.min(6, dist);
+        const target = { x: simPos.x + (dx / dist) * move, y: simPos.y + (dy / dist) * move };
+        const resolved = resolveMovement(simPos, target, campusGardenZones, new Set(), true);
+        const movedDist = Math.hypot(resolved.x - simPos.x, resolved.y - simPos.y);
+        if (movedDist < 0.001) {
+          break;
+        }
+        simPos = resolved;
+      }
+    }
+    expect(waypointsCopy.length).toBe(0);
+
+    // Test exiting Coworking North-East to Grand Plaza
+    const pathFromNEToPlaza = findPath({ x: 1250, y: 150 }, plazaCenter, campusGardenZones);
+    expect(pathFromNEToPlaza.length).toBeGreaterThan(0);
+
+    let simPosNE = { x: 1250, y: 150 };
+    const waypointsCopyNE = [...pathFromNEToPlaza];
+    let stepsTakenNE = 0;
+    while (waypointsCopyNE.length > 0 && stepsTakenNE < 300) {
+      stepsTakenNE++;
+      const nextPt = waypointsCopyNE[0]!;
+      const dx = nextPt.x - simPosNE.x;
+      const dy = nextPt.y - simPosNE.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 6) {
+        waypointsCopyNE.shift();
+      } else {
+        const move = Math.min(6, dist);
+        const target = { x: simPosNE.x + (dx / dist) * move, y: simPosNE.y + (dy / dist) * move };
+        const resolved = resolveMovement(simPosNE, target, campusGardenZones, new Set(), true);
+        const movedDist = Math.hypot(resolved.x - simPosNE.x, resolved.y - simPosNE.y);
+        if (movedDist < 0.001) {
+          break;
+        }
+        simPosNE = resolved;
+      }
+    }
+    expect(waypointsCopyNE.length).toBe(0);
+
+    // Test Coworking NW to Meeting Room Alpha
+    const pathNWToAlpha = findPath({ x: 300, y: 150 }, { x: 270, y: 430 }, campusGardenZones);
+    expect(pathNWToAlpha.length).toBeGreaterThan(0);
+
+    // Test Coworking NE to Meeting Room Beta
+    const pathNEToBeta = findPath({ x: 1250, y: 150 }, { x: 1330, y: 430 }, campusGardenZones);
+    expect(pathNEToBeta.length).toBeGreaterThan(0);
+
+    // Test Coworking NW to Coworking NE
+    const pathNWToNE = findPath({ x: 300, y: 150 }, { x: 1250, y: 150 }, campusGardenZones);
+    expect(pathNWToNE.length).toBeGreaterThan(0);
   });
 
   it('finds path from Breakout Cafe to Private Office avoiding Meeting Room Beta', () => {

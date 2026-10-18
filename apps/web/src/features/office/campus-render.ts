@@ -168,18 +168,18 @@ export function drawCampusWalkways(ctx: CanvasRenderingContext2D, s: number): vo
   ctx.strokeStyle = '#cbd5e1';
   ctx.lineWidth = 1.5 * s;
 
-  // Outer Perimeter Path Loop (extended to connect to Coworking rooms)
-  ctx.fillRect(275 * s, 286 * s, 1050 * s, 52 * s);
-  ctx.strokeRect(275 * s, 286 * s, 1050 * s, 52 * s);
+  // Outer Perimeter Path Loop (extended to connect to Coworking rooms, center y = 320 for Top, y = 780 for Bottom)
+  ctx.fillRect(275 * s, 296 * s, 1050 * s, 48 * s);
+  ctx.strokeRect(275 * s, 296 * s, 1050 * s, 48 * s);
 
-  ctx.fillRect(275 * s, 762 * s, 1050 * s, 52 * s);
-  ctx.strokeRect(275 * s, 762 * s, 1050 * s, 52 * s);
+  ctx.fillRect(275 * s, 756 * s, 1050 * s, 48 * s);
+  ctx.strokeRect(275 * s, 756 * s, 1050 * s, 48 * s);
 
-  ctx.fillRect(476 * s, 286 * s, 52 * s, 528 * s);
-  ctx.strokeRect(476 * s, 286 * s, 52 * s, 528 * s);
+  ctx.fillRect(476 * s, 296 * s, 52 * s, 508 * s);
+  ctx.strokeRect(476 * s, 296 * s, 52 * s, 508 * s);
 
-  ctx.fillRect(1072 * s, 286 * s, 52 * s, 528 * s);
-  ctx.strokeRect(1072 * s, 286 * s, 52 * s, 528 * s);
+  ctx.fillRect(1072 * s, 296 * s, 52 * s, 508 * s);
+  ctx.strokeRect(1072 * s, 296 * s, 52 * s, 508 * s);
 
   // Connector branches into Meeting Rooms
   ctx.fillRect(395 * s, 388 * s, 85 * s, 84 * s);
@@ -192,14 +192,14 @@ export function drawCampusWalkways(ctx: CanvasRenderingContext2D, s: number): vo
   ctx.strokeRect(1120 * s, 628 * s, 85 * s, 84 * s);
 
   // Connector branches into Focus Pods
-  ctx.fillRect(550 * s, 255 * s, 100 * s, 40 * s);
-  ctx.strokeRect(550 * s, 255 * s, 100 * s, 40 * s);
-  ctx.fillRect(940 * s, 255 * s, 100 * s, 40 * s);
-  ctx.strokeRect(940 * s, 255 * s, 100 * s, 40 * s);
-  ctx.fillRect(550 * s, 805 * s, 100 * s, 40 * s);
-  ctx.strokeRect(550 * s, 805 * s, 100 * s, 40 * s);
-  ctx.fillRect(940 * s, 805 * s, 100 * s, 40 * s);
-  ctx.strokeRect(940 * s, 805 * s, 100 * s, 40 * s);
+  ctx.fillRect(550 * s, 255 * s, 100 * s, 68 * s);
+  ctx.strokeRect(550 * s, 255 * s, 100 * s, 68 * s);
+  ctx.fillRect(940 * s, 255 * s, 100 * s, 68 * s);
+  ctx.strokeRect(940 * s, 255 * s, 100 * s, 68 * s);
+  ctx.fillRect(550 * s, 780 * s, 100 * s, 65 * s);
+  ctx.strokeRect(550 * s, 780 * s, 100 * s, 65 * s);
+  ctx.fillRect(940 * s, 780 * s, 100 * s, 65 * s);
+  ctx.strokeRect(940 * s, 780 * s, 100 * s, 65 * s);
 
   // Connector branches to Outdoor Garden Dining Areas (aligned with y: 526..574, center y = 550)
   ctx.fillRect(175 * s, 526 * s, 305 * s, 48 * s);
@@ -214,8 +214,8 @@ export function drawCampusWalkways(ctx: CanvasRenderingContext2D, s: number): vo
 
   // Entrances into plaza (seamlessly connecting corridors to Grand Plaza at centerlines)
   ctx.fillStyle = '#e2e8f0';
-  ctx.fillRect(770 * s, 326 * s, 60 * s, 52 * s);
-  ctx.fillRect(770 * s, 722 * s, 60 * s, 52 * s);
+  ctx.fillRect(770 * s, 320 * s, 60 * s, 65 * s);
+  ctx.fillRect(770 * s, 715 * s, 60 * s, 65 * s);
   ctx.fillRect(476 * s, 526 * s, 120 * s, 48 * s);
   ctx.fillRect(1004 * s, 526 * s, 120 * s, 48 * s);
 
