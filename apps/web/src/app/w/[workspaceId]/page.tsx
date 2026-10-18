@@ -434,8 +434,8 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
 
       <MagicDuelModal
         workspaceId={workspaceId}
-        zoneId={currentZone?.id || 'game-room-default'}
-        zoneName={currentZone?.name || 'Game Room'}
+        zoneId="magic-duel-arena"
+        zoneName={currentZone && isGameZone(currentZone) ? currentZone.name : 'Game Room'}
         isOpen={gameOpen}
         onClose={() => setGameOpen(false)}
       />

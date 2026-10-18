@@ -1,6 +1,4 @@
-'use client';
-
-import { useCallback, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 
 /**
  * Procedural Web Audio API sound synthesizer for Magic Duel.
@@ -196,14 +194,26 @@ export function useMagicDuelAudio() {
     });
   }, [getAudioContext]);
 
-  return {
-    playFireball,
-    playFrost,
-    playLightning,
-    playShield,
-    playDash,
-    playHit,
-    playBlocked,
-    playElimination,
-  };
+  return useMemo(
+    () => ({
+      playFireball,
+      playFrost,
+      playLightning,
+      playShield,
+      playDash,
+      playHit,
+      playBlocked,
+      playElimination,
+    }),
+    [
+      playFireball,
+      playFrost,
+      playLightning,
+      playShield,
+      playDash,
+      playHit,
+      playBlocked,
+      playElimination,
+    ],
+  );
 }

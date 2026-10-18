@@ -30,11 +30,32 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const token = useAuthStore((s) => s.accessToken);
   const user = useAuthStore((s) => s.user);
+  const userRef = useRef(user);
+  userRef.current = user;
+
   const audio = useMagicDuelAudio();
+  const audioRef = useRef(audio);
+  audioRef.current = audio;
 
   const [gameState, setGameState] = useState<GameWorldState | null>(null);
   const [selectedSpell, setSelectedSpell] = useState<SpellType>('fireball');
+  const selectedSpellRef = useRef<SpellType>('fireball');
+  selectedSpellRef.current = selectedSpell;
+
   const [activeMap, setActiveMap] = useState<GameMapTheme>('catacombs');
+  const [isConnected, setIsConnected] = useState(false);
+
+  const selectSpell = (type: SpellType) => {
+    setSelectedSpell(type);
+    selectedSpellRef.current = type;
+  };
+
+  const triggerDash = () => {
+    isRightMouseDownRef.current = true;
+    setTimeout(() => {
+      isRightMouseDownRef.current = false;
+    }, 80);
+  };
 
   const floatingNumbersRef = useRef<FloatingNumber[]>([]);
   const prevPlayersHealthRef = useRef<Map<string, number>>(new Map());
@@ -200,14 +221,23 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     if (!token) return;
     const socket = getSocket(token);
 
-    socket.emit('game:join', { workspaceId, zoneId });
+    const joinRoom = () => {
+      socket.emit('game:join', { workspaceId, zoneId });
+      setIsConnected(true);
+    };
+
+    joinRoom();
+    socket.on('connect', joinRoom);
+    socket.on('disconnect', () => setIsConnected(false));
 
     const onGameState = (state: GameWorldState) => {
+      setIsConnected(true);
       setGameState(state);
       setActiveMap(state.mapId);
 
       // Detect health drops to spawn floating combat numbers and play audio
       const prevMap = prevPlayersHealthRef.current;
+      const myId = userRef.current?.id;
       for (const p of state.players) {
         const prevHp = prevMap.get(p.id);
         if (prevHp !== undefined && prevHp > p.health) {
@@ -220,8 +250,8 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
             color: '#ef4444',
             createdAt: Date.now(),
           });
-          if (p.id === user?.id) {
-            audio.playHit();
+          if (p.id === myId) {
+            audioRef.current.playHit();
           }
         }
         prevMap.set(p.id, p.health);
@@ -231,35 +261,52 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     socket.on('game:state', onGameState);
 
     return () => {
+      socket.off('connect', joinRoom);
       socket.off('game:state', onGameState);
       socket.emit('game:leave', { workspaceId, zoneId });
     };
-  }, [token, workspaceId, zoneId, user?.id, audio]);
+  }, [token, workspaceId, zoneId]);
 
   // Input listeners
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      keysDownRef.current.add(e.code);
+
+      const code = e.code;
+      const key = e.key.toLowerCase();
+
+      keysDownRef.current.add(code);
+      keysDownRef.current.add(key);
 
       // Spell switching 1-4
-      if (e.code === 'Digit1') setSelectedSpell('fireball');
-      if (e.code === 'Digit2') setSelectedSpell('frost');
-      if (e.code === 'Digit3') setSelectedSpell('lightning');
-      if (e.code === 'Digit4') setSelectedSpell('shield');
+      if (code === 'Digit1' || code === 'Numpad1' || key === '1') selectSpell('fireball');
+      if (code === 'Digit2' || code === 'Numpad2' || key === '2') selectSpell('frost');
+      if (code === 'Digit3' || code === 'Numpad3' || key === '3') selectSpell('lightning');
+      if (code === 'Digit4' || code === 'Numpad4' || key === '4') selectSpell('shield');
+
+      // Dash
+      if (code === 'Space' || key === ' ' || code === 'KeyK' || key === 'k') {
+        e.preventDefault();
+        triggerDash();
+      }
+      if (code.startsWith('Arrow')) {
+        e.preventDefault();
+      }
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
       keysDownRef.current.delete(e.code);
+      keysDownRef.current.delete(e.key.toLowerCase());
     };
 
     const onMouseMove = (e: MouseEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
       mousePosRef.current = {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
+        x: (e.clientX - rect.left) * (canvas.width / rect.width),
+        y: (e.clientY - rect.top) * (canvas.height / rect.height),
       };
     };
 
@@ -268,7 +315,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         isMouseDownRef.current = true;
       } else if (e.button === 2) {
         e.preventDefault();
-        isRightMouseDownRef.current = true;
+        triggerDash();
       }
     };
 
@@ -308,10 +355,10 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       let moveX = 0;
       let moveY = 0;
 
-      if (keys.has('KeyA') || keys.has('ArrowLeft')) moveX -= 1;
-      if (keys.has('KeyD') || keys.has('ArrowRight')) moveX += 1;
-      if (keys.has('KeyW') || keys.has('ArrowUp')) moveY -= 1;
-      if (keys.has('KeyS') || keys.has('ArrowDown')) moveY += 1;
+      if (keys.has('KeyA') || keys.has('ArrowLeft') || keys.has('a')) moveX -= 1;
+      if (keys.has('KeyD') || keys.has('ArrowRight') || keys.has('d')) moveX += 1;
+      if (keys.has('KeyW') || keys.has('ArrowUp') || keys.has('w')) moveY -= 1;
+      if (keys.has('KeyS') || keys.has('ArrowDown') || keys.has('s')) moveY += 1;
 
       // Handle touch joystick override
       if (touchMoveRef.current.active) {
@@ -331,14 +378,14 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         moveY /= mag;
       }
 
-      const isFiring = isMouseDownRef.current || keys.has('KeyJ');
-      const isDashing = isRightMouseDownRef.current || keys.has('Space') || keys.has('KeyK');
+      const isFiring = isMouseDownRef.current || keys.has('KeyJ') || keys.has('j');
+      const isDashing = isRightMouseDownRef.current || keys.has('Space') || keys.has('KeyK') || keys.has(' ') || keys.has('k');
 
       const input: GameClientInput = {
         moveX,
         moveY,
         facingAngle: currentAngleRef.current,
-        activeSpell: selectedSpell,
+        activeSpell: selectedSpellRef.current,
         isFiring,
         isDashing,
       };
@@ -347,7 +394,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     }, 33);
 
     return () => clearInterval(interval);
-  }, [token, workspaceId, zoneId, selectedSpell]);
+  }, [token, workspaceId, zoneId]);
 
   // Main 60 FPS Render Loop
   useEffect(() => {
@@ -365,7 +412,8 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
       // Find local player
       const state = gameState;
-      const localPlayer = state?.players.find((p) => p.id === user?.id);
+      const myId = userRef.current?.id;
+      const localPlayer = state?.players.find((p) => p.id === myId) || state?.players.find((p) => !p.isBot) || null;
 
       // Camera view coordinates
       const camX = localPlayer ? localPlayer.posX : width / 2;
@@ -744,81 +792,31 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         ctx.restore();
       }
 
-      // 5. Bottom Spell Bar (Icons + Cooldown rings)
-      if (localPlayer) {
-        ctx.save();
-        const barWidth = 320;
-        ctx.translate(width / 2 - barWidth / 2, height - 85);
-
-        // Spell buttons
-        const spellsList: { type: SpellType; label: string; key: string }[] = [
-          { type: 'fireball', label: 'Fire', key: '1' },
-          { type: 'frost', label: 'Frost', key: '2' },
-          { type: 'lightning', label: 'Light', key: '3' },
-          { type: 'shield', label: 'Shield', key: '4' },
-          { type: 'dash', label: 'Dash', key: 'SPC' },
-        ];
-
-        spellsList.forEach((sp, idx) => {
-          const btnX = idx * 64;
-          const isSelected = selectedSpell === sp.type && sp.type !== 'dash';
-
-          // Background
-          ctx.fillStyle = isSelected ? 'rgba(56, 189, 248, 0.35)' : 'rgba(15, 23, 42, 0.85)';
-          ctx.strokeStyle = isSelected ? '#38bdf8' : 'rgba(148, 163, 184, 0.3)';
-          ctx.lineWidth = isSelected ? 2.5 : 1;
-          ctx.beginPath();
-          ctx.roundRect(btnX, 0, 56, 56, 12);
-          ctx.fill();
-          ctx.stroke();
-
-          // Icon
-          const iconImg = textures.spells[sp.type];
-          if (iconImg && iconImg.complete) {
-            ctx.drawImage(iconImg, btnX + 8, 8, 40, 40);
-          } else {
-            ctx.fillStyle = '#f8fafc';
-            ctx.font = 'bold 10px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(sp.label, btnX + 28, 32);
-          }
-
-          // Key badge
-          ctx.fillStyle = '#38bdf8';
-          ctx.font = 'bold 9px monospace';
-          ctx.textAlign = 'left';
-          ctx.fillText(sp.key, btnX + 4, 14);
-
-          // Cooldown radial sweep
-          const cd = localPlayer.cooldowns[sp.type] || 0;
-          if (cd > 0) {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-            ctx.beginPath();
-            ctx.roundRect(btnX, 0, 56, 56, 12);
-            ctx.fill();
-
-            ctx.fillStyle = '#f8fafc';
-            ctx.font = 'bold 12px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(`${cd.toFixed(1)}s`, btnX + 28, 34);
-          }
-        });
-        ctx.restore();
-      }
-
       animId = requestAnimationFrame(render);
     };
 
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [gameState, selectedSpell, user?.id]);
+  }, [gameState, user?.id]);
 
   // Handle map selection
   const handleSelectMap = (mapId: GameMapTheme) => {
+    setActiveMap(mapId);
     if (!token) return;
     const socket = getSocket(token);
     socket.emit('game:select-map', { workspaceId, zoneId, mapId });
   };
+
+  const myId = userRef.current?.id;
+  const localPlayer = gameState?.players.find((p) => p.id === myId) || gameState?.players.find((p) => !p.isBot) || null;
+
+  const spellsList: { type: SpellType; label: string; key: string; iconName: string; mana: number }[] = [
+    { type: 'fireball', label: 'Fireball', key: '1', iconName: 'fire', mana: 15 },
+    { type: 'frost', label: 'Frost', key: '2', iconName: 'frost', mana: 12 },
+    { type: 'lightning', label: 'Lightning', key: '3', iconName: 'lightning', mana: 25 },
+    { type: 'shield', label: 'Shield', key: '4', iconName: 'shield', mana: 20 },
+    { type: 'dash', label: 'Dash', key: 'SPC', iconName: 'dash', mana: 20 },
+  ];
 
   return (
     <div className="relative h-full w-full select-none overflow-hidden bg-slate-950 font-sans text-white">
@@ -851,16 +849,24 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         }}
       />
 
+      {/* Connection Indicator */}
+      <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-xl border border-slate-700/80 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold backdrop-blur shadow-lg">
+          <span className={`inline-block h-2.5 w-2.5 rounded-full ${isConnected ? 'bg-emerald-400 shadow-sm shadow-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+          <span className="text-slate-200">{isConnected ? 'Live Arena · 30Hz' : 'Connecting to Server...'}</span>
+        </div>
+      </div>
+
       {/* Top Map Switcher / Control Buttons */}
-      <div className="absolute right-4 top-4 flex items-center gap-2">
-        <div className="flex items-center rounded-lg border border-slate-700 bg-slate-900/90 p-1 text-xs backdrop-blur">
-          <span className="px-2 text-slate-400">Map:</span>
+      <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
+        <div className="flex items-center rounded-xl border border-slate-700/80 bg-slate-900/90 p-1 text-xs backdrop-blur shadow-lg">
+          <span className="px-2 text-slate-400 font-semibold">Map:</span>
           {(['catacombs', 'forest-ruins', 'lava-citadel'] as GameMapTheme[]).map((m) => (
             <button
               key={m}
               onClick={() => handleSelectMap(m)}
-              className={`rounded px-2.5 py-1 font-medium capitalize transition ${
-                activeMap === m ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-slate-800'
+              className={`rounded-lg px-2.5 py-1 font-semibold capitalize transition ${
+                activeMap === m ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800'
               }`}
             >
               {m.replace('-', ' ')}
@@ -871,7 +877,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         {onClose && (
           <button
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-900/90 text-sm font-bold text-slate-300 hover:bg-red-600 hover:text-white transition backdrop-blur"
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-700/80 bg-slate-900/90 text-sm font-bold text-slate-300 hover:bg-red-600 hover:text-white transition backdrop-blur shadow-lg"
             title="Exit to Office"
           >
             ✕
@@ -879,8 +885,85 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         )}
       </div>
 
+      {/* Loading Overlay if waiting for initial game state */}
+      {!gameState && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-sm">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-sky-500/10 border border-sky-500/30 text-3xl animate-bounce">
+            ⚡
+          </div>
+          <h3 className="mt-4 text-base font-bold text-slate-100">Joining Magic Duel Arena...</h3>
+          <p className="mt-1 text-xs text-slate-400">Synchronizing 30Hz server physics & sparring bot...</p>
+          <button
+            onClick={() => {
+              if (token) {
+                const s = getSocket(token);
+                s.emit('game:join', { workspaceId, zoneId });
+              }
+            }}
+            className="mt-4 rounded-xl bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-500 transition shadow-lg shadow-sky-600/30"
+          >
+            Retry Connection
+          </button>
+        </div>
+      )}
+
+      {/* Interactive Spell Selection Bar (Clickable HTML Dock) */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-2xl border border-slate-700/80 bg-slate-950/90 p-2 shadow-2xl backdrop-blur-md">
+        {spellsList.map((sp) => {
+          const isSelected = selectedSpell === sp.type;
+          const cd = localPlayer?.cooldowns[sp.type] || 0;
+          return (
+            <button
+              key={sp.type}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (sp.type === 'dash') {
+                  triggerDash();
+                } else {
+                  selectSpell(sp.type);
+                }
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              className={`group relative flex h-16 w-16 flex-col items-center justify-center rounded-xl border transition-all select-none cursor-pointer ${
+                isSelected
+                  ? 'border-sky-400 bg-sky-500/25 shadow-lg shadow-sky-500/30 scale-105'
+                  : 'border-slate-800 bg-slate-900/80 hover:border-slate-600 hover:bg-slate-800'
+              }`}
+              title={`${sp.label} (${sp.mana} MP) - Press [${sp.key}] or Click to Select`}
+            >
+              {/* Badge */}
+              <span className="absolute left-1.5 top-1 rounded bg-slate-800/90 px-1 font-mono text-[9px] font-bold text-sky-300">
+                {sp.key}
+              </span>
+              {/* Icon */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/magic-duel/textures/spell_${sp.iconName}.png`}
+                alt={sp.label}
+                className="h-7 w-7 object-contain pointer-events-none"
+              />
+              {/* Label */}
+              <span className="mt-0.5 text-[10px] font-semibold text-slate-200">
+                {sp.label}
+              </span>
+              {/* Mana Cost */}
+              <span className="text-[8px] text-sky-400 font-mono">
+                {sp.mana} MP
+              </span>
+              {/* Cooldown Overlay */}
+              {cd > 0 && (
+                <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/75 backdrop-blur-xs">
+                  <span className="font-mono text-xs font-bold text-amber-400">{cd.toFixed(1)}s</span>
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Quick Controls Cheat Sheet */}
-      <div className="pointer-events-none absolute bottom-4 left-4 flex flex-col gap-1 rounded-xl border border-slate-800 bg-slate-900/85 p-3 text-xs text-slate-300 shadow-lg backdrop-blur">
+      <div className="pointer-events-none absolute bottom-4 left-4 z-20 flex flex-col gap-1 rounded-xl border border-slate-800 bg-slate-900/85 p-3 text-xs text-slate-300 shadow-lg backdrop-blur">
         <div className="flex items-center gap-2">
           <kbd className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[11px] text-sky-400">WASD</kbd>
           <span>Move</span>
