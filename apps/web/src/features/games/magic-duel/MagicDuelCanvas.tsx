@@ -199,7 +199,7 @@ function drawWizardCharacter(
   const bob = Math.sin(time / 180) * 2;
 
   // Robe Mantle
-  ctx.fillStyle = hitFlashTimer > 0 ? '#fee2e2' : palette.robeBase;
+  ctx.fillStyle = palette.robeBase;
   ctx.beginPath();
   ctx.moveTo(-16, 15 + bob);
   ctx.quadraticCurveTo(-18, 0 + bob, -13, -8 + bob);
@@ -210,12 +210,12 @@ function drawWizardCharacter(
   ctx.fill();
 
   // Robe Hem Trim
-  ctx.strokeStyle = hitFlashTimer > 0 ? '#ef4444' : palette.robeTrim;
+  ctx.strokeStyle = palette.robeTrim;
   ctx.lineWidth = 2.5;
   ctx.stroke();
 
   // Robe Center Pleat / Highlight
-  ctx.fillStyle = hitFlashTimer > 0 ? '#fca5a5' : palette.robeHighlight;
+  ctx.fillStyle = palette.robeHighlight;
   ctx.beginPath();
   ctx.moveTo(-5, -6 + bob);
   ctx.lineTo(5, -6 + bob);
