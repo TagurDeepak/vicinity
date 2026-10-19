@@ -200,6 +200,9 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     };
 
     const onGameState = (state: any) => {
+      // Synchronize canvas game world (players, positions, projectiles, and stats)
+      gameRef.current?.syncServerState(state);
+
       if (state.matchState) {
         setMatchState((prev) => (prev !== state.matchState ? state.matchState : prev));
       }
@@ -308,8 +311,11 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
   };
 
   const handleSelectTeam = (team: 'blue' | 'red') => {
+    setSelectedMode('teams');
+    setGameMode('teams');
     if (gameRef.current) {
       gameRef.current.setPlayerTeam(gameRef.current.localPlayer.id, team);
+      gameRef.current.gameMode = 'teams';
     }
     if (token && isConnected) {
       const socket = getSocket(token);
@@ -658,24 +664,22 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                 </span>
                 <div className="flex gap-2">
                   <button
-                    disabled={!isHostPlayer}
                     onClick={() => handleSelectMode('ffa')}
-                    className={`flex-1 rounded-lg py-2.5 text-xs font-bold transition ${
+                    className={`flex-1 rounded-lg py-2.5 text-xs font-bold transition cursor-pointer ${
                       selectedMode === 'ffa'
                         ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20 font-black ring-2 ring-amber-400 scale-[1.02]'
                         : 'border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white'
-                    } ${!isHostPlayer ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                    }`}
                   >
                     Solo FFA
                   </button>
                   <button
-                    disabled={!isHostPlayer}
                     onClick={() => handleSelectMode('teams')}
-                    className={`flex-1 rounded-lg py-2.5 text-xs font-bold transition ${
+                    className={`flex-1 rounded-lg py-2.5 text-xs font-bold transition cursor-pointer ${
                       selectedMode === 'teams'
                         ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20 font-black ring-2 ring-sky-400 scale-[1.02]'
                         : 'border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white'
-                    } ${!isHostPlayer ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                    }`}
                   >
                     Team Duel
                   </button>
@@ -824,9 +828,26 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
             ) : (
               /* FFA Player Roster */
               <div className="mb-5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
-                  🧙 Connected Wizards ({playersSummary.length})
-                </span>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    🧙 Connected Wizards ({playersSummary.length}) · Solo FFA
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-400">Play teams:</span>
+                    <button
+                      onClick={() => handleSelectTeam('blue')}
+                      className="rounded-lg bg-sky-900/60 border border-sky-500/50 hover:bg-sky-600 px-2 py-0.5 text-[10px] font-bold text-sky-200 hover:text-white transition cursor-pointer shadow-sm"
+                    >
+                      🔵 Join Blue
+                    </button>
+                    <button
+                      onClick={() => handleSelectTeam('red')}
+                      className="rounded-lg bg-red-900/60 border border-red-500/50 hover:bg-red-600 px-2 py-0.5 text-[10px] font-bold text-red-200 hover:text-white transition cursor-pointer shadow-sm"
+                    >
+                      🔴 Join Red
+                    </button>
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
                   {playersSummary.map((p) => {
                     const isLocal = isLocalPlayer(p.id);

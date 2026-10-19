@@ -87,6 +87,7 @@ export class MagicDuelGame {
 
   lastFrameTime: number;
   isRunning: boolean;
+  isMultiplayer: boolean = false;
   nextProjId: number;
 
   onKillFeedChange: ((feed: KillFeedItem[]) => void) | null;
@@ -189,6 +190,157 @@ export class MagicDuelGame {
     }
   }
 
+  syncServerState(serverState: any) {
+    if (!serverState) return;
+    this.isMultiplayer = true;
+
+    if (serverState.matchState) {
+      this.matchState = serverState.matchState;
+    }
+    if (typeof serverState.matchDuration === 'number') {
+      this.matchDuration = serverState.matchDuration;
+    }
+    if (typeof serverState.matchTimeRemaining === 'number') {
+      this.matchTimeRemaining = serverState.matchTimeRemaining;
+    }
+    if (serverState.gameMode) {
+      this.gameMode = serverState.gameMode;
+    }
+    if (serverState.hostId) {
+      this.hostId = serverState.hostId;
+    }
+    if (serverState.teamScores) {
+      this.teamScores = { ...serverState.teamScores };
+    }
+
+    if (Array.isArray(serverState.players)) {
+      const incomingIds = new Set<string>(serverState.players.map((p: any) => p.id));
+
+      for (const sp of serverState.players) {
+        const isLocal =
+          sp.id === this.localPlayerId ||
+          sp.id === this.localPlayer.id ||
+          (this.localPlayerId !== 'player-1' && sp.id === this.localPlayerId);
+
+        if (isLocal) {
+          // Update local player stats from server authoritative snapshot
+          this.localPlayer.id = sp.id;
+          this.localPlayer.name = sp.name;
+          this.localPlayer.colorIndex = sp.colorIndex;
+          this.localPlayer.health = sp.health;
+          this.localPlayer.maxHealth = sp.maxHealth;
+          this.localPlayer.mana = sp.mana;
+          this.localPlayer.maxMana = sp.maxMana;
+          this.localPlayer.kills = sp.kills;
+          this.localPlayer.deaths = sp.deaths;
+          this.localPlayer.score = sp.score;
+          this.localPlayer.damageDealt = sp.damageDealt ?? 0;
+          this.localPlayer.team = sp.team ?? 'none';
+          this.localPlayer.isAdmin = sp.isAdmin ?? false;
+          this.localPlayer.hasShield = sp.hasShield;
+          this.localPlayer.isAlive = sp.isAlive;
+          if (typeof sp.hitFlashTimer === 'number') {
+            this.localPlayer.hitFlashTimer = sp.hitFlashTimer;
+          }
+
+          // If local player died or distance from authoritative position is large (> 250px), snap position
+          const dx = this.localPlayer.x - sp.posX;
+          const dy = this.localPlayer.y - sp.posY;
+          if (!this.localPlayer.isAlive || dx * dx + dy * dy > 250 * 250) {
+            this.localPlayer.x = sp.posX;
+            this.localPlayer.y = sp.posY;
+          }
+        } else {
+          // Remote human player or bot
+          let existing = this.players.find((p) => p.id === sp.id);
+          if (!existing) {
+            existing = new PlayerEntity(
+              sp.id,
+              sp.name,
+              sp.colorIndex,
+              sp.posX,
+              sp.posY,
+              sp.isBot,
+            );
+            this.players.push(existing);
+          }
+
+          // Smooth interpolation towards server position
+          const dx = sp.posX - existing.x;
+          const dy = sp.posY - existing.y;
+          if (Math.abs(dx) > 180 || Math.abs(dy) > 180) {
+            existing.x = sp.posX;
+            existing.y = sp.posY;
+          } else {
+            existing.x += dx * 0.45;
+            existing.y += dy * 0.45;
+          }
+          existing.facingAngle = sp.facingAngle;
+          existing.name = sp.name;
+          existing.colorIndex = sp.colorIndex;
+          existing.health = sp.health;
+          existing.maxHealth = sp.maxHealth;
+          existing.mana = sp.mana;
+          existing.maxMana = sp.maxMana;
+          existing.kills = sp.kills;
+          existing.deaths = sp.deaths;
+          existing.score = sp.score;
+          existing.damageDealt = sp.damageDealt ?? 0;
+          existing.team = sp.team ?? 'none';
+          existing.isAdmin = sp.isAdmin ?? false;
+          existing.hasShield = sp.hasShield;
+          existing.isAlive = sp.isAlive;
+          existing.isDashing = sp.isDashing;
+          existing.hitFlashTimer = sp.hitFlashTimer;
+          existing.isBot = sp.isBot;
+        }
+      }
+
+      // Remove players that are no longer in server room (e.g. removed bots, disconnected players)
+      this.players = this.players.filter(
+        (p) => p.id === this.localPlayer.id || p.id === this.localPlayerId || incomingIds.has(p.id),
+      );
+    }
+
+    // Synchronize authoritative projectiles
+    if (Array.isArray(serverState.projectiles)) {
+      this.projectiles = serverState.projectiles.map((sp: any) => {
+        const p = new Projectile(
+          sp.id,
+          sp.ownerId,
+          sp.spellType,
+          sp.posX,
+          sp.posY,
+          0,
+          sp.team ?? 'none',
+        );
+        p.x = sp.posX;
+        p.y = sp.posY;
+        p.velX = sp.velX ?? 0;
+        p.velY = sp.velY ?? 0;
+        p.damage = sp.damage;
+        p.radius = sp.radius;
+        p.lifetime = sp.lifetime;
+        return p;
+      });
+    }
+
+    // Synchronize kill feed if provided
+    if (Array.isArray(serverState.killFeed) && serverState.killFeed.length > 0) {
+      this.killFeed = serverState.killFeed.map((kf: any, idx: number) => ({
+        id: idx,
+        text:
+          typeof kf === 'string'
+            ? kf
+            : (kf.text ?? `${kf.killerName || 'Player'} ⚡ ${kf.victimName || 'Player'}`),
+        time: performance.now(),
+      }));
+      if (this.onKillFeedChange) {
+        this.onKillFeedChange(this.killFeed);
+      }
+    }
+  }
+
   initGame() {
     const map = ARENA_MAPS[this.currentMapId] || ARENA_MAPS.catacombs!;
     const spawnP1 = map.spawnPoints[0] || { x: 380, y: 380 };
@@ -259,7 +411,9 @@ export class MagicDuelGame {
       p.deaths = 0;
       p.damageDealt = 0;
       if (this.gameMode === 'teams') {
-        p.team = idx % 2 === 0 ? 'blue' : 'red';
+        if (p.team !== 'blue' && p.team !== 'red') {
+          p.team = idx % 2 === 0 ? 'blue' : 'red';
+        }
       } else {
         p.team = 'none';
       }
@@ -276,8 +430,11 @@ export class MagicDuelGame {
     const pl = this.players.find((p) => p.id === playerId);
     if (pl) {
       pl.team = team;
+      if (team === 'blue' || team === 'red') {
+        this.gameMode = 'teams';
+      }
       // In 1v1 vs bot, put bot on opposing team
-      if (pl.id === this.localPlayer.id && this.gameMode === 'teams') {
+      if (pl.id === this.localPlayer.id && this.gameMode === 'teams' && this.botPlayer) {
         this.botPlayer.team = team === 'blue' ? 'red' : 'blue';
       }
     }
@@ -398,7 +555,9 @@ export class MagicDuelGame {
             p.triggerShield();
             this.audio.playShield();
           } else {
-            this.spawnProjectile(p.id, spellType, p.x, p.y, p.facingAngle);
+            if (!this.isMultiplayer) {
+              this.spawnProjectile(p.id, spellType, p.x, p.y, p.facingAngle);
+            }
             if (spellType === 'fireball') this.audio.playFireball();
             else if (spellType === 'frost') this.audio.playFrost();
             else if (spellType === 'lightning') this.audio.playLightning();
@@ -413,10 +572,14 @@ export class MagicDuelGame {
 
     // 3. Update Entities
     p.update(dt, map.obstacles, map.width, map.height);
-    bot.update(dt, map.obstacles, map.width, map.height);
+    for (const pl of this.players) {
+      if (pl !== p) {
+        pl.update(dt, map.obstacles, map.width, map.height);
+      }
+    }
 
-    // 4. Update Bot AI (strictly only during active match; idle during waiting or ended)
-    if (this.matchState === 'in_progress') {
+    // 4. Update Bot AI (strictly in offline singleplayer mode)
+    if (!this.isMultiplayer && this.matchState === 'in_progress') {
       this.botAI.update(
         dt,
         p,
@@ -462,8 +625,8 @@ export class MagicDuelGame {
         }
       }
 
-      // Check collision with wizards
-      if (!destroyed) {
+      // Check collision with wizards (in offline singleplayer mode; in multiplayer the server is authoritative)
+      if (!destroyed && !this.isMultiplayer) {
         for (const target of this.players) {
           if (target.id === proj.ownerId || !target.isAlive) continue;
 

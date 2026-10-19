@@ -336,21 +336,19 @@ export class MagicDuelEngine {
     this.io.to(key).emit('game:state', this.buildSnapshot(room));
   }
 
-  public selectMode(workspaceId: string, zoneId: string, userId: string, gameMode: 'ffa' | 'teams'): void {
+  public selectMode(workspaceId: string, zoneId: string, _userId: string, gameMode: 'ffa' | 'teams'): void {
     const key = gameRoomKey(workspaceId, zoneId);
     const room = this.rooms.get(key);
     if (!room) return;
-
-    const activeHumans = Array.from(room.players.values()).filter((p) => !p.isBot);
-    const isAuthorized = room.hostId === userId || activeHumans.length <= 1;
-    if (!isAuthorized) return;
 
     room.gameMode = gameMode;
     if (gameMode === 'teams') {
       let idx = 0;
       for (const p of room.players.values()) {
-        p.team = idx % 2 === 0 ? 'blue' : 'red';
-        idx++;
+        if (p.team !== 'blue' && p.team !== 'red') {
+          p.team = idx % 2 === 0 ? 'blue' : 'red';
+          idx++;
+        }
       }
     } else {
       for (const p of room.players.values()) {
@@ -402,7 +400,11 @@ export class MagicDuelEngine {
       player.score = 0;
       player.damageDealt = 0;
       if (gameMode === 'teams') {
-        player.team = i % 2 === 0 ? 'blue' : 'red';
+        if (player.team !== 'blue' && player.team !== 'red') {
+          const blueCount = Array.from(room.players.values()).filter((p) => p.team === 'blue').length;
+          const redCount = Array.from(room.players.values()).filter((p) => p.team === 'red').length;
+          player.team = blueCount <= redCount ? 'blue' : 'red';
+        }
       } else {
         player.team = 'none';
       }
@@ -425,6 +427,9 @@ export class MagicDuelEngine {
     const player = room.players.get(userId);
     if (player) {
       player.team = team;
+      if (team === 'blue' || team === 'red') {
+        room.gameMode = 'teams';
+      }
       this.io.to(key).emit('game:state', this.buildSnapshot(room));
     }
   }
