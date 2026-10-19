@@ -246,20 +246,28 @@ export function OfficeCanvas({
     return () => ro.disconnect();
   }, []);
 
-  // Keyboard input.
+  // Keyboard input (isolated when Magic Duel modal is open)
   useEffect(() => {
+    if (isGameOpen) {
+      keys.current.clear();
+      return;
+    }
     const down = (e: KeyboardEvent) => {
+      if (isGameOpen) return;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
       keys.current.add(e.key.toLowerCase());
     };
-    const up = (e: KeyboardEvent) => keys.current.delete(e.key.toLowerCase());
+    const up = (e: KeyboardEvent) => {
+      if (isGameOpen) return;
+      keys.current.delete(e.key.toLowerCase());
+    };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     return () => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
     };
-  }, []);
+  }, [isGameOpen]);
 
   // Seed local position from the store once we know who we are & check initial zone.
   useEffect(() => {
