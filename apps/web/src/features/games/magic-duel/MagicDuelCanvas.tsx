@@ -212,9 +212,11 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       }
       if (typeof state.matchDuration === 'number') {
         setMatchDuration(state.matchDuration);
+        setSelectedDuration(state.matchDuration);
       }
       if (state.gameMode) {
         setGameMode((prev) => (prev !== state.gameMode ? state.gameMode : prev));
+        setSelectedMode(state.gameMode);
       }
       if (state.hostId) {
         setHostId(state.hostId);
@@ -315,10 +317,28 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     }
   };
 
+  const handleSelectDuration = (dur: number) => {
+    setSelectedDuration(dur);
+    setMatchDuration(dur);
+    setMatchTimeRemaining(dur);
+    if (gameRef.current) {
+      gameRef.current.matchDuration = dur;
+      gameRef.current.matchTimeRemaining = dur;
+    }
+    if (token && isConnected) {
+      const socket = getSocket(token);
+      socket.emit('game:select-duration', { workspaceId, zoneId, duration: dur });
+    }
+  };
+
   const handleSelectMode = (mode: 'ffa' | 'teams') => {
     setSelectedMode(mode);
     setGameMode(mode);
     gameRef.current?.setGameMode(mode);
+    if (token && isConnected) {
+      const socket = getSocket(token);
+      socket.emit('game:select-mode', { workspaceId, zoneId, gameMode: mode });
+    }
   };
 
   const handleRematch = () => {
@@ -358,6 +378,15 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
   const blueTeamPlayers = playersSummary.filter((p) => p.team === 'blue');
   const redTeamPlayers = playersSummary.filter((p) => p.team === 'red');
   const localPlayerSummary = playersSummary.find((p) => isLocalPlayer(p.id));
+
+  // Determine host permissions with automatic fallback if player is alone in the arena
+  const isOnlyHuman = playersSummary.filter((p) => !p.isBot).length <= 1;
+  const isHostPlayer =
+    isHost ||
+    isOnlyHuman ||
+    (Boolean(user?.id) && _hostId === user?.id) ||
+    isLocalPlayer(_hostId) ||
+    Boolean(localPlayerSummary?.isAdmin);
 
   // Leaderboard sorted for Final Scoreboard
   const rankedPlayers = [...playersSummary].sort((a, b) => {
@@ -553,7 +582,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         {/* Team & Role Status Badge */}
         <div className="flex items-center justify-between rounded-xl border border-slate-700/80 bg-slate-900/85 px-3 py-1.5 shadow-xl backdrop-blur-md text-xs">
           <span className="text-slate-400 font-semibold">
-            {isHost ? '👑 Room Admin' : '🧙 Wizard'}
+            {isHostPlayer ? '👑 Room Admin' : '🧙 Wizard'}
           </span>
           {gameMode === 'teams' ? (
             <span
@@ -604,17 +633,17 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                     ARCANE WAITING ROOM & LOBBY
                   </h2>
                 </div>
-                <p className="mt-1 text-xs text-slate-400">
-                  {isHost
-                    ? '👑 You are the Room Host (Admin). Set the match rules and start when wizards are ready.'
-                    : '⏳ Waiting for the Room Host to commence the battle.'}
+                <p className="mt-1 text-xs text-slate-300">
+                  {isHostPlayer
+                    ? '👑 You are the Room Host (Admin). Choose match settings below and start when ready.'
+                    : '⏳ Connected to arena lobby. Waiting for Room Host to start the battle.'}
                 </p>
               </div>
 
               <button
                 onClick={() => setShowLobbyModal(false)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white transition"
-                title="Minimize lobby to practice moving/casting"
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+                title="Minimize lobby to practice moving in arena"
               >
                 ✕
               </button>
@@ -629,24 +658,24 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                 </span>
                 <div className="flex gap-2">
                   <button
-                    disabled={!isHost}
+                    disabled={!isHostPlayer}
                     onClick={() => handleSelectMode('ffa')}
-                    className={`flex-1 rounded-lg py-2 text-xs font-bold transition ${
+                    className={`flex-1 rounded-lg py-2.5 text-xs font-bold transition ${
                       selectedMode === 'ffa'
-                        ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
-                        : 'border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
-                    } ${!isHost ? 'opacity-80 cursor-default' : ''}`}
+                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20 font-black ring-2 ring-amber-400 scale-[1.02]'
+                        : 'border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white'
+                    } ${!isHostPlayer ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
                   >
                     Solo FFA
                   </button>
                   <button
-                    disabled={!isHost}
+                    disabled={!isHostPlayer}
                     onClick={() => handleSelectMode('teams')}
-                    className={`flex-1 rounded-lg py-2 text-xs font-bold transition ${
+                    className={`flex-1 rounded-lg py-2.5 text-xs font-bold transition ${
                       selectedMode === 'teams'
-                        ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20'
-                        : 'border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
-                    } ${!isHost ? 'opacity-80 cursor-default' : ''}`}
+                        ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20 font-black ring-2 ring-sky-400 scale-[1.02]'
+                        : 'border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white'
+                    } ${!isHostPlayer ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
                   >
                     Team Duel
                   </button>
@@ -659,20 +688,23 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                   ⏱️ Match Duration
                 </span>
                 <div className="grid grid-cols-4 gap-1.5">
-                  {[60, 120, 180, 300].map((dur) => (
-                    <button
-                      key={dur}
-                      disabled={!isHost}
-                      onClick={() => setSelectedDuration(dur)}
-                      className={`rounded-lg py-2 text-[11px] font-bold transition ${
-                        selectedDuration === dur
-                          ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                          : 'border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
-                      } ${!isHost ? 'opacity-80 cursor-default' : ''}`}
-                    >
-                      {dur / 60}m
-                    </button>
-                  ))}
+                  {[60, 120, 180, 300].map((dur) => {
+                    const isSelected = selectedDuration === dur;
+                    return (
+                      <button
+                        key={dur}
+                        disabled={!isHostPlayer}
+                        onClick={() => handleSelectDuration(dur)}
+                        className={`rounded-lg py-2.5 text-xs font-bold transition ${
+                          isSelected
+                            ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30 font-black ring-2 ring-amber-400 scale-[1.03]'
+                            : 'border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white'
+                        } ${!isHostPlayer ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                      >
+                        {dur / 60}m
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -712,7 +744,15 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                               <span className="text-slate-200 truncate flex items-center gap-1">
                                 {p.isAdmin && '👑'} {p.name} {isLocal && '(You)'}
                               </span>
-                              <span className="text-[10px] text-sky-400 font-mono">READY</span>
+                              {p.isBot ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-slate-800 border border-slate-700/80 px-2 py-0.5 text-[10px] font-medium text-slate-300">
+                                  🤖 Sparring Bot
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
+                                  ● In Arena
+                                </span>
+                              )}
                             </div>
                           );
                         })}
@@ -721,7 +761,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
                     <button
                       onClick={() => handleSelectTeam('blue')}
-                      className={`mt-3 w-full rounded-lg py-1.5 text-xs font-bold transition shadow-sm ${
+                      className={`mt-3 w-full rounded-lg py-1.5 text-xs font-bold transition shadow-sm cursor-pointer ${
                         localPlayerSummary?.team === 'blue'
                           ? 'bg-sky-500 text-white font-extrabold shadow-sky-500/30'
                           : 'border border-sky-500/40 bg-sky-900/40 text-sky-200 hover:bg-sky-600 hover:text-white'
@@ -753,7 +793,15 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                               <span className="text-slate-200 truncate flex items-center gap-1">
                                 {p.isAdmin && '👑'} {p.name} {isLocal && '(You)'}
                               </span>
-                              <span className="text-[10px] text-red-400 font-mono">READY</span>
+                              {p.isBot ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-slate-800 border border-slate-700/80 px-2 py-0.5 text-[10px] font-medium text-slate-300">
+                                  🤖 Sparring Bot
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
+                                  ● In Arena
+                                </span>
+                              )}
                             </div>
                           );
                         })}
@@ -762,7 +810,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
                     <button
                       onClick={() => handleSelectTeam('red')}
-                      className={`mt-3 w-full rounded-lg py-1.5 text-xs font-bold transition shadow-sm ${
+                      className={`mt-3 w-full rounded-lg py-1.5 text-xs font-bold transition shadow-sm cursor-pointer ${
                         localPlayerSummary?.team === 'red'
                           ? 'bg-red-500 text-white font-extrabold shadow-red-500/30'
                           : 'border border-red-500/40 bg-red-900/40 text-red-200 hover:bg-red-600 hover:text-white'
@@ -791,7 +839,15 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                           <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                           {p.isAdmin && '👑'} {p.name} {isLocal && '(You)'}
                         </span>
-                        <span className="text-[10px] font-bold text-amber-400">READY</span>
+                        {p.isBot ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-800 border border-slate-700/80 px-2 py-0.5 text-[10px] font-medium text-slate-300">
+                            🤖 Sparring Bot
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
+                            ● In Arena
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -803,22 +859,23 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
             <div className="flex items-center gap-3 border-t border-slate-800 pt-4">
               <button
                 onClick={() => setShowLobbyModal(false)}
-                className="flex-1 rounded-xl border border-slate-700 bg-slate-800/80 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-700 hover:text-white transition shadow"
+                className="flex-1 rounded-xl border border-slate-700 bg-slate-800/80 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-700 hover:text-white transition shadow cursor-pointer"
               >
                 🎯 Practice in Arena
               </button>
 
-              {isHost ? (
+              {isHostPlayer ? (
                 <button
                   onClick={handleStartMatch}
-                  className="flex-[2] rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 py-2.5 text-sm font-extrabold text-black shadow-lg shadow-amber-500/30 transition transform hover:scale-[1.02]"
+                  className="flex-[2] rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:brightness-110 py-3 text-sm font-black text-black shadow-xl shadow-amber-500/30 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
                 >
-                  ⚡ START MATCH NOW
+                  <span className="text-base">⚡</span>
+                  <span>START MATCH NOW</span>
                 </button>
               ) : (
-                <div className="flex-[2] flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/50 py-2.5 text-xs font-semibold text-slate-400">
+                <div className="flex-[2] flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/50 py-3 text-xs font-semibold text-slate-300">
                   <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
-                  <span>Waiting for Host to start...</span>
+                  <span>Waiting for Room Host to start match...</span>
                 </div>
               )}
             </div>

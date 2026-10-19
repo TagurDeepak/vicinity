@@ -214,6 +214,14 @@ export function registerGateway(io: VicinityServer, proximity: ProximityEngine):
       magicDuel.selectMap(workspaceId, zoneId, mapId);
     });
 
+    socket.on('game:select-duration', ({ workspaceId, zoneId, duration }) => {
+      magicDuel.selectDuration(workspaceId, zoneId, user.id, duration);
+    });
+
+    socket.on('game:select-mode', ({ workspaceId, zoneId, gameMode }) => {
+      magicDuel.selectMode(workspaceId, zoneId, user.id, gameMode);
+    });
+
     socket.on('game:start-match', ({ workspaceId, zoneId, matchDuration, gameMode }) => {
       magicDuel.startMatch(workspaceId, zoneId, user.id, matchDuration, gameMode);
     });

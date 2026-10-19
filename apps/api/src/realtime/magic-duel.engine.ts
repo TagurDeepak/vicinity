@@ -206,9 +206,10 @@ export class MagicDuelEngine {
 
     void socket.join(key);
 
-    // First person becomes host
-    const isFirstPlayer = Array.from(room.players.values()).filter((p) => !p.isBot).length === 0;
-    if (isFirstPlayer) {
+    // Ensure room always has an active human host
+    const activeHumansBefore = Array.from(room.players.values()).filter((p) => !p.isBot);
+    const hostIsActive = activeHumansBefore.some((p) => p.id === room.hostId);
+    if (!hostIsActive || activeHumansBefore.length === 0) {
       room.hostId = userId;
     }
 
@@ -220,6 +221,11 @@ export class MagicDuelEngine {
     const colorIndex = playerColors[room.players.size % playerColors.length];
 
     const team = room.gameMode === 'teams' ? (room.players.size % 2 === 0 ? 'blue' : 'red') : 'none';
+
+    const isHost = room.hostId === userId || activeHumansBefore.length === 0;
+    if (isHost) {
+      room.hostId = userId;
+    }
 
     const player: InternalPlayer = {
       id: userId,
@@ -237,7 +243,7 @@ export class MagicDuelEngine {
       score: 0,
       damageDealt: 0,
       team,
-      isAdmin: room.hostId === userId,
+      isAdmin: isHost,
       hasShield: true,
       shieldDuration: 2.0, // Free 2s shield on spawn
       isAlive: true,
@@ -316,6 +322,44 @@ export class MagicDuelEngine {
     }
   }
 
+  public selectDuration(workspaceId: string, zoneId: string, userId: string, duration: number): void {
+    const key = gameRoomKey(workspaceId, zoneId);
+    const room = this.rooms.get(key);
+    if (!room) return;
+
+    const activeHumans = Array.from(room.players.values()).filter((p) => !p.isBot);
+    const isAuthorized = room.hostId === userId || activeHumans.length <= 1;
+    if (!isAuthorized) return;
+
+    room.matchDuration = duration;
+    room.matchTimeRemaining = duration;
+    this.io.to(key).emit('game:state', this.buildSnapshot(room));
+  }
+
+  public selectMode(workspaceId: string, zoneId: string, userId: string, gameMode: 'ffa' | 'teams'): void {
+    const key = gameRoomKey(workspaceId, zoneId);
+    const room = this.rooms.get(key);
+    if (!room) return;
+
+    const activeHumans = Array.from(room.players.values()).filter((p) => !p.isBot);
+    const isAuthorized = room.hostId === userId || activeHumans.length <= 1;
+    if (!isAuthorized) return;
+
+    room.gameMode = gameMode;
+    if (gameMode === 'teams') {
+      let idx = 0;
+      for (const p of room.players.values()) {
+        p.team = idx % 2 === 0 ? 'blue' : 'red';
+        idx++;
+      }
+    } else {
+      for (const p of room.players.values()) {
+        p.team = 'none';
+      }
+    }
+    this.io.to(key).emit('game:state', this.buildSnapshot(room));
+  }
+
   public startMatch(
     workspaceId: string,
     zoneId: string,
@@ -327,10 +371,13 @@ export class MagicDuelEngine {
     const room = this.rooms.get(key);
     if (!room) return;
 
-    if (room.hostId !== userId) {
+    const activeHumans = Array.from(room.players.values()).filter((p) => !p.isBot);
+    const isAuthorized = room.hostId === userId || activeHumans.length <= 1;
+    if (!isAuthorized) {
       logger.warn({ userId, hostId: room.hostId }, 'non-host attempted to start match');
       return;
     }
+    room.hostId = userId;
 
     room.matchDuration = duration;
     room.matchTimeRemaining = duration;

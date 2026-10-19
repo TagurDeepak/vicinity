@@ -79,6 +79,8 @@ export interface ClientToServerEvents {
   'game:leave': (payload: { workspaceId: string; zoneId: string }) => void;
   'game:input': (payload: { workspaceId: string; zoneId: string; input: GameClientInput }) => void;
   'game:select-map': (payload: { workspaceId: string; zoneId: string; mapId: GameMapTheme }) => void;
+  'game:select-duration': (payload: { workspaceId: string; zoneId: string; duration: number }) => void;
+  'game:select-mode': (payload: { workspaceId: string; zoneId: string; gameMode: 'ffa' | 'teams' }) => void;
   'game:start-match': (payload: {
     workspaceId: string;
     zoneId: string;
