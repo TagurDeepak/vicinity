@@ -253,12 +253,12 @@ export function OfficeCanvas({
       return;
     }
     const down = (e: KeyboardEvent) => {
-      if (isGameOpen) return;
+      if (isGameOpen || !e.key) return;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
       keys.current.add(e.key.toLowerCase());
     };
     const up = (e: KeyboardEvent) => {
-      if (isGameOpen) return;
+      if (isGameOpen || !e.key) return;
       keys.current.delete(e.key.toLowerCase());
     };
     window.addEventListener('keydown', down);

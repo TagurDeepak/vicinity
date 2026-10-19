@@ -275,6 +275,7 @@ export function SkyCampus3D({
 
     // Keyboard movement
     const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.key) return;
       const k = e.key.toLowerCase();
       if (k === 'w' || k === 'arrowup') keysRef.current.w = true;
       if (k === 's' || k === 'arrowdown') keysRef.current.s = true;
@@ -282,6 +283,7 @@ export function SkyCampus3D({
       if (k === 'd' || k === 'arrowright') keysRef.current.d = true;
     };
     const onKeyUp = (e: KeyboardEvent) => {
+      if (!e.key) return;
       const k = e.key.toLowerCase();
       if (k === 'w' || k === 'arrowup') keysRef.current.w = false;
       if (k === 's' || k === 'arrowdown') keysRef.current.s = false;
