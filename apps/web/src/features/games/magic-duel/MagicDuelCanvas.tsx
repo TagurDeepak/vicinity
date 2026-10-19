@@ -778,8 +778,8 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      const code = e.code;
-      const key = e.key.toLowerCase();
+      const code = e.code || '';
+      const key = (e.key || '').toLowerCase();
 
       keysDownRef.current.add(code);
       keysDownRef.current.add(key);
@@ -795,14 +795,28 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         e.preventDefault();
         triggerDash();
       }
-      if (code.startsWith('Arrow')) {
+
+      // Prevent scrolling / browser action on game movement keys
+      if (
+        code.startsWith('Arrow') ||
+        code === 'KeyW' || code === 'KeyA' || code === 'KeyS' || code === 'KeyD' ||
+        key === 'w' || key === 'a' || key === 's' || key === 'd' || key === ' '
+      ) {
         e.preventDefault();
       }
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
-      keysDownRef.current.delete(e.code);
-      keysDownRef.current.delete(e.key.toLowerCase());
+      const code = e.code || '';
+      const key = (e.key || '').toLowerCase();
+      keysDownRef.current.delete(code);
+      keysDownRef.current.delete(key);
+    };
+
+    const clearAllKeys = () => {
+      keysDownRef.current.clear();
+      isMouseDownRef.current = false;
+      isRightMouseDownRef.current = false;
     };
 
     const onMouseMove = (e: MouseEvent) => {
@@ -834,8 +848,11 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       e.preventDefault();
     };
 
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    window.addEventListener('keyup', onKeyUp, { capture: true });
+    window.addEventListener('blur', clearAllKeys);
+    window.addEventListener('focus', clearAllKeys);
+    document.addEventListener('visibilitychange', clearAllKeys);
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mouseup', onMouseUp);
@@ -844,6 +861,9 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', clearAllKeys);
+      window.removeEventListener('focus', clearAllKeys);
+      document.removeEventListener('visibilitychange', clearAllKeys);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mouseup', onMouseUp);
