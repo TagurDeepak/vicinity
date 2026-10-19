@@ -82,6 +82,7 @@ export interface GamePlayerState {
   kills: number;
   deaths: number;
   score: number;
+  damageDealt?: number;
   hasShield: boolean;
   shieldDuration: number;
   isAlive: boolean;
@@ -91,6 +92,8 @@ export interface GamePlayerState {
   isDashing: boolean;
   dashTimer: number;
   hitFlashTimer: number;
+  team?: 'blue' | 'red' | 'none';
+  isAdmin?: boolean;
 }
 
 export interface GameProjectile {
@@ -104,6 +107,7 @@ export interface GameProjectile {
   damage: number;
   radius: number;
   lifetime: number;
+  team?: 'blue' | 'red' | 'none';
 }
 
 export type VisualEffectType =
@@ -157,8 +161,13 @@ export interface GameWorldState {
   killFeed: GameKillFeedItem[];
   matchState: 'waiting' | 'in_progress' | 'ended';
   matchTimer: number;
+  matchDuration?: number;
+  matchTimeRemaining?: number;
   roundResetTimer: number;
   winnerId: string | null;
+  hostId?: string | null;
+  gameMode?: 'ffa' | 'teams';
+  teamScores?: { blue: number; red: number };
 }
 
 export interface GameClientInput {

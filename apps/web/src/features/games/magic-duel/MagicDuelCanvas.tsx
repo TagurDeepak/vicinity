@@ -1,7 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { MagicDuelGame, type GameStats, type KillFeedItem } from './engine/game';
+import {
+  MagicDuelGame,
+  type GameStats,
+  type KillFeedItem,
+  type PlayerSummary,
+} from './engine/game';
 import { SPELLS, type SpellDefinition } from './engine/config';
 import { useAuthStore } from '@/stores/auth';
 import { getSocket } from '@/lib/ws';
@@ -24,6 +29,19 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
   const [activeSpell, setActiveSpell] = useState<string>('fireball');
   const [killFeed, setKillFeed] = useState<KillFeedItem[]>([]);
   const [isConnected, setIsConnected] = useState<boolean>(false);
+
+  // Match State & Lobby State
+  const [matchState, setMatchState] = useState<'waiting' | 'in_progress' | 'ended'>('waiting');
+  const [matchTimeRemaining, setMatchTimeRemaining] = useState<number>(120);
+  const [_matchDuration, setMatchDuration] = useState<number>(120);
+  const [gameMode, setGameMode] = useState<'ffa' | 'teams'>('ffa');
+  const [isHost, setIsHost] = useState<boolean>(true);
+  const [_hostId, setHostId] = useState<string>('player-1');
+  const [teamScores, setTeamScores] = useState<{ blue: number; red: number }>({ blue: 0, red: 0 });
+  const [playersSummary, setPlayersSummary] = useState<PlayerSummary[]>([]);
+  const [showLobbyModal, setShowLobbyModal] = useState<boolean>(true);
+  const [selectedDuration, setSelectedDuration] = useState<number>(120);
+  const [selectedMode, setSelectedMode] = useState<'ffa' | 'teams'>('ffa');
 
   // Direct DOM references for 60-144 FPS smooth HUD updates without React re-render thrashing
   const hpFillRef = useRef<HTMLDivElement | null>(null);
@@ -88,6 +106,16 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       if (stats.activeSpell !== activeSpell) {
         setActiveSpell(stats.activeSpell);
       }
+
+      // 5. Match & Lobby State
+      setMatchState(stats.matchState);
+      setMatchTimeRemaining(stats.matchTimeRemaining);
+      setMatchDuration(stats.matchDuration);
+      setGameMode(stats.gameMode);
+      setIsHost(stats.isHost);
+      setHostId(stats.hostId);
+      setTeamScores(stats.teamScores);
+      setPlayersSummary(stats.players);
     };
 
     game.onKillFeedChange = (feed: KillFeedItem[]) => {
@@ -146,11 +174,41 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       setIsConnected(false);
     };
 
+    const onGameState = (state: any) => {
+      if (state.matchState) setMatchState(state.matchState);
+      if (typeof state.matchTimeRemaining === 'number') setMatchTimeRemaining(state.matchTimeRemaining);
+      if (typeof state.matchDuration === 'number') setMatchDuration(state.matchDuration);
+      if (state.gameMode) setGameMode(state.gameMode);
+      if (state.hostId) {
+        setHostId(state.hostId);
+        setIsHost(state.hostId === user?.id);
+      }
+      if (state.teamScores) setTeamScores(state.teamScores);
+      if (state.players) {
+        setPlayersSummary(
+          state.players.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            isBot: p.isBot,
+            colorIndex: p.colorIndex,
+            team: p.team || 'none',
+            isAdmin: p.isAdmin || false,
+            score: p.score,
+            kills: p.kills,
+            deaths: p.deaths,
+            damageDealt: p.damageDealt || 0,
+            health: p.health,
+          })),
+        );
+      }
+    };
+
     if (socket.connected) {
       onConnect();
     }
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
+    socket.on('game:state', onGameState);
 
     // Send input at 60 Hz to server
     const inputTimer = setInterval(() => {
@@ -174,9 +232,10 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       clearInterval(inputTimer);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
+      socket.off('game:state', onGameState);
       socket.emit('game:leave', { workspaceId, zoneId });
     };
-  }, [token, workspaceId, zoneId]);
+  }, [token, workspaceId, zoneId, user?.id]);
 
   // Handle map switch
   const handleSelectMap = (mapId: string) => {
@@ -188,6 +247,54 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     }
   };
 
+  // Match control handlers
+  const handleStartMatch = () => {
+    gameRef.current?.startMatch(selectedDuration, selectedMode);
+    setShowLobbyModal(false);
+    if (token && isConnected) {
+      const socket = getSocket(token);
+      socket.emit('game:start-match', {
+        workspaceId,
+        zoneId,
+        matchDuration: selectedDuration,
+        gameMode: selectedMode,
+      });
+    }
+  };
+
+  const handleSelectTeam = (team: 'blue' | 'red') => {
+    if (gameRef.current) {
+      gameRef.current.setPlayerTeam(gameRef.current.localPlayer.id, team);
+    }
+    if (token && isConnected) {
+      const socket = getSocket(token);
+      socket.emit('game:set-team', { workspaceId, zoneId, team });
+    }
+  };
+
+  const handleSelectMode = (mode: 'ffa' | 'teams') => {
+    setSelectedMode(mode);
+    setGameMode(mode);
+    gameRef.current?.setGameMode(mode);
+  };
+
+  const handleRematch = () => {
+    gameRef.current?.rematch();
+    setShowLobbyModal(true);
+    if (token && isConnected) {
+      const socket = getSocket(token);
+      socket.emit('game:rematch', { workspaceId, zoneId });
+    }
+  };
+
+  // Format MM:SS
+  const formatTime = (seconds: number) => {
+    const s = Math.max(0, Math.ceil(seconds));
+    const mins = Math.floor(s / 60);
+    const secs = s % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const spellList: SpellDefinition[] = [
     SPELLS.fireball!,
     SPELLS.frost!,
@@ -195,6 +302,20 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     SPELLS.shield!,
     SPELLS.dash!,
   ];
+
+  // Team filtered rosters
+  const blueTeamPlayers = playersSummary.filter((p) => p.team === 'blue');
+  const redTeamPlayers = playersSummary.filter((p) => p.team === 'red');
+  const localPlayerSummary = playersSummary.find((p) => p.id === gameRef.current?.localPlayer.id);
+
+  // Leaderboard sorted for Final Scoreboard
+  const rankedPlayers = [...playersSummary].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.kills !== a.kills) return b.kills - a.kills;
+    return b.damageDealt - a.damageDealt;
+  });
+
+  const winner = rankedPlayers[0];
 
   return (
     <div
@@ -220,9 +341,56 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
               }`}
             />
             <span className="text-slate-200">
-              {isConnected ? 'Live Arena · 60 FPS Ultra-Smooth' : 'Arcade Arena · Sparring Bot Ready'}
+              {isConnected ? 'Live Arena · 60 FPS' : 'Arcade Arena · Sparring Bot Ready'}
             </span>
           </div>
+
+          {matchState === 'waiting' && !showLobbyModal && (
+            <button
+              onClick={() => setShowLobbyModal(true)}
+              className="flex items-center gap-1.5 rounded-xl border border-amber-500/60 bg-amber-500/20 px-3 py-1.5 text-xs font-bold text-amber-300 hover:bg-amber-500/30 transition shadow-lg backdrop-blur"
+            >
+              <span>🏛️</span> Open Waiting Room
+            </button>
+          )}
+        </div>
+
+        {/* Center: Match Countdown Timer & Team Scores */}
+        <div className="pointer-events-auto flex items-center gap-3">
+          {matchState === 'in_progress' ? (
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-900/95 px-4 py-1.5 shadow-2xl backdrop-blur">
+              {gameMode === 'teams' && (
+                <div className="flex items-center gap-2 font-mono font-bold text-xs">
+                  <span className="text-sky-400">🔵 {teamScores.blue}</span>
+                  <span className="text-slate-500">VS</span>
+                  <span className="text-red-400">🔴 {teamScores.red}</span>
+                  <div className="h-4 w-px bg-slate-700 mx-1" />
+                </div>
+              )}
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">⏱️</span>
+                <span
+                  className={`font-mono text-sm font-extrabold ${
+                    matchTimeRemaining <= 15
+                      ? 'text-red-400 animate-pulse scale-105'
+                      : 'text-amber-300'
+                  }`}
+                >
+                  {formatTime(matchTimeRemaining)}
+                </span>
+              </div>
+            </div>
+          ) : matchState === 'waiting' ? (
+            <div className="flex items-center gap-2 rounded-2xl border border-amber-500/50 bg-slate-900/90 px-3.5 py-1 text-xs font-bold text-amber-300 shadow-lg backdrop-blur">
+              <span className="animate-spin text-amber-400">⏳</span>
+              <span>WAITING ROOM · {gameMode === 'teams' ? 'TEAM DUEL' : 'SOLO FFA'}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-2xl border border-emerald-500/50 bg-slate-900/90 px-3.5 py-1 text-xs font-bold text-emerald-300 shadow-lg backdrop-blur">
+              <span>🏆</span>
+              <span>MATCH CONCLUDED</span>
+            </div>
+          )}
         </div>
 
         {/* Right: Map Selector & Close */}
@@ -330,6 +498,32 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
             </b>
           </div>
         </div>
+
+        {/* Team & Role Status Badge */}
+        <div className="flex items-center justify-between rounded-xl border border-slate-700/80 bg-slate-900/85 px-3 py-1.5 shadow-xl backdrop-blur-md text-xs">
+          <span className="text-slate-400 font-semibold">
+            {isHost ? '👑 Room Admin' : '🧙 Wizard'}
+          </span>
+          {gameMode === 'teams' ? (
+            <span
+              className={`font-bold px-2 py-0.5 rounded-md ${
+                localPlayerSummary?.team === 'blue'
+                  ? 'bg-sky-500/20 text-sky-400 border border-sky-500/40'
+                  : localPlayerSummary?.team === 'red'
+                    ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                    : 'text-slate-400'
+              }`}
+            >
+              {localPlayerSummary?.team === 'blue'
+                ? '🔵 BLUE TEAM'
+                : localPlayerSummary?.team === 'red'
+                  ? '🔴 RED TEAM'
+                  : 'NO TEAM'}
+            </span>
+          ) : (
+            <span className="text-amber-400 font-bold">⚔️ SOLO (FFA)</span>
+          )}
+        </div>
       </div>
 
       {/* 4. Top-Center Kill Feed */}
@@ -346,7 +540,379 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         </div>
       )}
 
-      {/* 5. Bottom Center Spell Hotbar */}
+      {/* 5. WAITING ROOM / LOBBY MODAL OVERLAY */}
+      {matchState === 'waiting' && showLobbyModal && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="relative w-full max-w-xl rounded-2xl border border-slate-700/80 bg-slate-900/95 p-6 shadow-2xl backdrop-blur-xl">
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-slate-800 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">🏛️</span>
+                  <h2 className="text-lg font-extrabold text-white tracking-wide">
+                    ARCANE WAITING ROOM & LOBBY
+                  </h2>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  {isHost
+                    ? '👑 You are the Room Host (Admin). Set the match rules and start when wizards are ready.'
+                    : '⏳ Waiting for the Room Host to commence the battle.'}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowLobbyModal(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white transition"
+                title="Minimize lobby to practice moving/casting"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Mode & Duration Config (Editable by Host) */}
+            <div className="my-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Game Mode Selector */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
+                  ⚔️ Game Mode
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    disabled={!isHost}
+                    onClick={() => handleSelectMode('ffa')}
+                    className={`flex-1 rounded-lg py-2 text-xs font-bold transition ${
+                      selectedMode === 'ffa'
+                        ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
+                        : 'border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
+                    } ${!isHost ? 'opacity-80 cursor-default' : ''}`}
+                  >
+                    Solo FFA
+                  </button>
+                  <button
+                    disabled={!isHost}
+                    onClick={() => handleSelectMode('teams')}
+                    className={`flex-1 rounded-lg py-2 text-xs font-bold transition ${
+                      selectedMode === 'teams'
+                        ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20'
+                        : 'border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
+                    } ${!isHost ? 'opacity-80 cursor-default' : ''}`}
+                  >
+                    Team Duel
+                  </button>
+                </div>
+              </div>
+
+              {/* Match Duration Selector */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
+                  ⏱️ Match Duration
+                </span>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[60, 120, 180, 300].map((dur) => (
+                    <button
+                      key={dur}
+                      disabled={!isHost}
+                      onClick={() => setSelectedDuration(dur)}
+                      className={`rounded-lg py-2 text-[11px] font-bold transition ${
+                        selectedDuration === dur
+                          ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                          : 'border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800'
+                      } ${!isHost ? 'opacity-80 cursor-default' : ''}`}
+                    >
+                      {dur / 60}m
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Team Selection Cards (if in Teams mode) */}
+            {selectedMode === 'teams' ? (
+              <div className="mb-5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    🛡️ Select Your Team
+                  </span>
+                  <span className="text-[11px] font-medium text-emerald-400">
+                    Teammates cannot damage each other (Friendly Fire Disabled)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Blue Team Column */}
+                  <div className="rounded-xl border border-sky-500/40 bg-sky-950/20 p-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-sky-500/20">
+                        <span className="text-xs font-extrabold text-sky-400 flex items-center gap-1.5">
+                          <span>🔵</span> BLUE TEAM
+                        </span>
+                        <span className="text-[10px] font-mono text-sky-300 bg-sky-500/20 px-2 py-0.5 rounded-full">
+                          {blueTeamPlayers.length}
+                        </span>
+                      </div>
+                      <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                        {blueTeamPlayers.map((p) => (
+                          <div
+                            key={p.id}
+                            className="flex items-center justify-between rounded-lg bg-sky-950/40 px-2.5 py-1 text-xs"
+                          >
+                            <span className="text-slate-200 truncate flex items-center gap-1">
+                              {p.isAdmin && '👑'} {p.name} {p.id === gameRef.current?.localPlayer.id && '(You)'}
+                            </span>
+                            <span className="text-[10px] text-sky-400 font-mono">READY</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleSelectTeam('blue')}
+                      className={`mt-3 w-full rounded-lg py-1.5 text-xs font-bold transition shadow-sm ${
+                        localPlayerSummary?.team === 'blue'
+                          ? 'bg-sky-500 text-white font-extrabold shadow-sky-500/30'
+                          : 'border border-sky-500/40 bg-sky-900/40 text-sky-200 hover:bg-sky-600 hover:text-white'
+                      }`}
+                    >
+                      {localPlayerSummary?.team === 'blue' ? '✓ In Blue Team' : 'Join Blue'}
+                    </button>
+                  </div>
+
+                  {/* Red Team Column */}
+                  <div className="rounded-xl border border-red-500/40 bg-red-950/20 p-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-red-500/20">
+                        <span className="text-xs font-extrabold text-red-400 flex items-center gap-1.5">
+                          <span>🔴</span> RED TEAM
+                        </span>
+                        <span className="text-[10px] font-mono text-red-300 bg-red-500/20 px-2 py-0.5 rounded-full">
+                          {redTeamPlayers.length}
+                        </span>
+                      </div>
+                      <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                        {redTeamPlayers.map((p) => (
+                          <div
+                            key={p.id}
+                            className="flex items-center justify-between rounded-lg bg-red-950/40 px-2.5 py-1 text-xs"
+                          >
+                            <span className="text-slate-200 truncate flex items-center gap-1">
+                              {p.isAdmin && '👑'} {p.name} {p.id === gameRef.current?.localPlayer.id && '(You)'}
+                            </span>
+                            <span className="text-[10px] text-red-400 font-mono">READY</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleSelectTeam('red')}
+                      className={`mt-3 w-full rounded-lg py-1.5 text-xs font-bold transition shadow-sm ${
+                        localPlayerSummary?.team === 'red'
+                          ? 'bg-red-500 text-white font-extrabold shadow-red-500/30'
+                          : 'border border-red-500/40 bg-red-900/40 text-red-200 hover:bg-red-600 hover:text-white'
+                      }`}
+                    >
+                      {localPlayerSummary?.team === 'red' ? '✓ In Red Team' : 'Join Red'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* FFA Player Roster */
+              <div className="mb-5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
+                  🧙 Connected Wizards ({playersSummary.length})
+                </span>
+                <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+                  {playersSummary.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs"
+                    >
+                      <span className="text-slate-200 truncate flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                        {p.isAdmin && '👑'} {p.name} {p.id === gameRef.current?.localPlayer.id && '(You)'}
+                      </span>
+                      <span className="text-[10px] font-bold text-amber-400">READY</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Footer / Host Start Button */}
+            <div className="flex items-center gap-3 border-t border-slate-800 pt-4">
+              <button
+                onClick={() => setShowLobbyModal(false)}
+                className="flex-1 rounded-xl border border-slate-700 bg-slate-800/80 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-700 hover:text-white transition shadow"
+              >
+                🎯 Practice in Arena
+              </button>
+
+              {isHost ? (
+                <button
+                  onClick={handleStartMatch}
+                  className="flex-[2] rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 py-2.5 text-sm font-extrabold text-black shadow-lg shadow-amber-500/30 transition transform hover:scale-[1.02]"
+                >
+                  ⚡ START MATCH NOW
+                </button>
+              ) : (
+                <div className="flex-[2] flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/50 py-2.5 text-xs font-semibold text-slate-400">
+                  <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+                  <span>Waiting for Host to start...</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. FINAL SCOREBOARD RESULTS MODAL OVERLAY */}
+      {matchState === 'ended' && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in zoom-in-95">
+          <div className="relative w-full max-w-2xl rounded-2xl border border-slate-700/80 bg-slate-900/95 p-6 shadow-2xl backdrop-blur-2xl">
+            {/* Header Banner */}
+            <div className="text-center pb-4 border-b border-slate-800">
+              <span className="text-4xl inline-block mb-1 animate-bounce">🏆</span>
+              <h2 className="text-xl sm:text-2xl font-black tracking-wider uppercase">
+                {gameMode === 'teams' ? (
+                  teamScores.blue > teamScores.red ? (
+                    <span className="text-sky-400">BLUE TEAM VICTORY!</span>
+                  ) : teamScores.red > teamScores.blue ? (
+                    <span className="text-red-400">RED TEAM VICTORY!</span>
+                  ) : (
+                    <span className="text-amber-400">STALEMATE DRAW!</span>
+                  )
+                ) : (
+                  <span className="text-amber-300">
+                    {winner?.name ? `${winner.name} IS THE CHAMPION!` : 'MATCH COMPLETED!'}
+                  </span>
+                )}
+              </h2>
+              <p className="mt-1 text-xs text-slate-400">
+                Battle Concluded · Time Limit Expired · Final Combat Statistics
+              </p>
+
+              {gameMode === 'teams' && (
+                <div className="mt-3 inline-flex items-center gap-4 rounded-xl border border-slate-700 bg-slate-950/60 px-5 py-2 font-mono font-black text-sm">
+                  <span className="text-sky-400">🔵 Blue Team: {teamScores.blue} pts</span>
+                  <span className="text-slate-600">|</span>
+                  <span className="text-red-400">🔴 Red Team: {teamScores.red} pts</span>
+                </div>
+              )}
+            </div>
+
+            {/* Scoreboard Table */}
+            <div className="my-5 overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-900/90 text-slate-400 uppercase tracking-wider text-[10px] font-bold border-b border-slate-800">
+                  <tr>
+                    <th className="py-2.5 px-3">Rank</th>
+                    <th className="py-2.5 px-3">Wizard</th>
+                    {gameMode === 'teams' && <th className="py-2.5 px-3">Team</th>}
+                    <th className="py-2.5 px-3 text-right">Score</th>
+                    <th className="py-2.5 px-3 text-right">Kills</th>
+                    <th className="py-2.5 px-3 text-right">Deaths</th>
+                    <th className="py-2.5 px-3 text-right">Damage</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-mono">
+                  {rankedPlayers.map((p, idx) => {
+                    const isLocal = p.id === gameRef.current?.localPlayer.id;
+                    const rankMedals = ['🥇 1st', '🥈 2nd', '🥉 3rd'];
+                    const medal = rankMedals[idx] || `#${idx + 1}`;
+
+                    return (
+                      <tr
+                        key={p.id}
+                        className={`transition ${
+                          isLocal
+                            ? 'bg-sky-500/15 border-l-4 border-l-sky-400 font-bold'
+                            : idx === 0
+                              ? 'bg-amber-500/10'
+                              : 'hover:bg-slate-900/40'
+                        }`}
+                      >
+                        <td className="py-2.5 px-3 font-sans font-bold text-amber-300">
+                          {medal}
+                        </td>
+                        <td className="py-2.5 px-3 font-sans font-medium text-slate-200 flex items-center gap-1.5 truncate">
+                          {p.isAdmin && '👑'}
+                          <span>{p.name}</span>
+                          {isLocal && (
+                            <span className="rounded bg-sky-500/20 px-1 py-0.5 text-[9px] text-sky-300 font-bold">
+                              YOU
+                            </span>
+                          )}
+                        </td>
+                        {gameMode === 'teams' && (
+                          <td className="py-2.5 px-3 font-sans font-bold">
+                            {p.team === 'blue' ? (
+                              <span className="text-sky-400">🔵 Blue</span>
+                            ) : p.team === 'red' ? (
+                              <span className="text-red-400">🔴 Red</span>
+                            ) : (
+                              <span className="text-slate-500">-</span>
+                            )}
+                          </td>
+                        )}
+                        <td className="py-2.5 px-3 text-right font-bold text-amber-300">
+                          {p.score}
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-emerald-400">
+                          {p.kills}
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-red-400">
+                          {p.deaths}
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-slate-300">
+                          {Math.round(p.damageDealt)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Bottom Actions */}
+            <div className="flex items-center gap-3 border-t border-slate-800 pt-4">
+              {onClose ? (
+                <button
+                  onClick={onClose}
+                  className="flex-1 rounded-xl border border-slate-700 bg-slate-800/80 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-700 hover:text-white transition shadow"
+                >
+                  🚪 Exit to Office
+                </button>
+              ) : (
+                <a
+                  href="/lobby"
+                  className="flex-1 text-center rounded-xl border border-slate-700 bg-slate-800/80 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-700 hover:text-white transition shadow"
+                >
+                  🚪 Exit to Campus
+                </a>
+              )}
+
+              {isHost ? (
+                <button
+                  onClick={handleRematch}
+                  className="flex-[2] rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 py-2.5 text-sm font-extrabold text-black shadow-lg shadow-amber-500/30 transition transform hover:scale-[1.02]"
+                >
+                  🔄 Rematch / Return to Lobby
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowLobbyModal(true)}
+                  className="flex-[2] rounded-xl bg-sky-600 hover:bg-sky-500 py-2.5 text-sm font-bold text-white transition shadow-lg"
+                >
+                  🏛️ Return to Waiting Room
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Bottom Center Spell Hotbar */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-2xl border border-slate-700/80 bg-slate-950/90 p-2 shadow-2xl backdrop-blur-md">
         {spellList.map((sp) => {
           const isSelected = activeSpell === sp.id;
@@ -403,7 +969,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         })}
       </div>
 
-      {/* 6. Quick Controls Cheat Sheet (Bottom Left) */}
+      {/* 8. Quick Controls Cheat Sheet (Bottom Left) */}
       <div className="pointer-events-none absolute bottom-4 left-4 z-20 flex flex-col gap-1 rounded-xl border border-slate-800 bg-slate-900/85 p-3 text-xs text-slate-300 shadow-lg backdrop-blur">
         <div className="flex items-center gap-2">
           <kbd className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[11px] text-sky-400">WASD</kbd>

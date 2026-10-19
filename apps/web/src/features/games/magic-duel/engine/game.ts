@@ -15,6 +15,20 @@ import {
 } from './entities';
 import { BotAI } from './bot';
 
+export interface PlayerSummary {
+  id: string;
+  name: string;
+  isBot: boolean;
+  colorIndex: number;
+  team: 'blue' | 'red' | 'none';
+  isAdmin: boolean;
+  score: number;
+  kills: number;
+  deaths: number;
+  damageDealt: number;
+  health: number;
+}
+
 export interface GameStats {
   playerHealth: number;
   playerHealthLag: number;
@@ -24,9 +38,18 @@ export interface GameStats {
   playerScore: number;
   playerKills: number;
   playerDeaths: number;
+  playerDamageDealt: number;
   botHealth: number;
   cooldowns: Record<string, number>;
   activeSpell: string;
+  matchState: 'waiting' | 'in_progress' | 'ended';
+  matchTimeRemaining: number;
+  matchDuration: number;
+  gameMode: 'ffa' | 'teams';
+  hostId: string;
+  isHost: boolean;
+  teamScores: { blue: number; red: number };
+  players: PlayerSummary[];
 }
 
 export interface KillFeedItem {
@@ -53,6 +76,13 @@ export class MagicDuelGame {
   botPlayer: PlayerEntity;
   botAI: BotAI;
 
+  matchState: 'waiting' | 'in_progress' | 'ended';
+  matchDuration: number;
+  matchTimeRemaining: number;
+  gameMode: 'ffa' | 'teams';
+  hostId: string;
+  teamScores: { blue: number; red: number };
+
   lastFrameTime: number;
   isRunning: boolean;
   nextProjId: number;
@@ -76,6 +106,13 @@ export class MagicDuelGame {
     this.floatingNumbers = [];
     this.killFeed = [];
 
+    this.matchState = 'waiting';
+    this.matchDuration = 120;
+    this.matchTimeRemaining = 120;
+    this.gameMode = 'ffa';
+    this.hostId = 'player-1';
+    this.teamScores = { blue: 0, red: 0 };
+
     this.lastFrameTime = performance.now();
     this.isRunning = false;
     this.nextProjId = 1;
@@ -96,6 +133,9 @@ export class MagicDuelGame {
       spawnP1.y,
       false,
     );
+    this.localPlayer.isAdmin = true;
+    this.localPlayer.team = 'none';
+
     this.botPlayer = new PlayerEntity(
       'bot-ignis',
       'Archmage Ignis [BOT]',
@@ -104,6 +144,9 @@ export class MagicDuelGame {
       spawnP2.y,
       true,
     );
+    this.botPlayer.isAdmin = false;
+    this.botPlayer.team = 'none';
+
     this.players = [this.localPlayer, this.botPlayer];
     this.botAI = new BotAI(this.botPlayer);
 
@@ -129,14 +172,18 @@ export class MagicDuelGame {
     const spawnP1 = map.spawnPoints[0] || { x: 380, y: 380 };
     const spawnP2 = map.spawnPoints[1] || { x: 1620, y: 1020 };
 
+    const playerName = this.localPlayer ? this.localPlayer.name : 'Wizard (You)';
     this.localPlayer = new PlayerEntity(
       'player-1',
-      'Wizard (You)',
+      playerName,
       0,
       spawnP1.x,
       spawnP1.y,
       false,
     );
+    this.localPlayer.isAdmin = true;
+    this.localPlayer.team = this.gameMode === 'teams' ? 'blue' : 'none';
+
     this.botPlayer = new PlayerEntity(
       'bot-ignis',
       'Archmage Ignis [BOT]',
@@ -145,6 +192,8 @@ export class MagicDuelGame {
       spawnP2.y,
       true,
     );
+    this.botPlayer.isAdmin = false;
+    this.botPlayer.team = this.gameMode === 'teams' ? 'red' : 'none';
 
     this.players = [this.localPlayer, this.botPlayer];
     this.botAI = new BotAI(this.botPlayer);
@@ -154,8 +203,97 @@ export class MagicDuelGame {
     this.floatingNumbers = [];
     this.killFeed = [];
 
+    this.matchState = 'waiting';
+    this.matchTimeRemaining = this.matchDuration;
+    this.teamScores = { blue: 0, red: 0 };
+    this.hostId = this.localPlayer.id;
+
     // Center camera immediately on local player
     this.camera.lockOn(this.localPlayer.x, this.localPlayer.y);
+  }
+
+  startMatch(duration = 120, mode?: 'ffa' | 'teams') {
+    this.matchDuration = duration;
+    this.matchTimeRemaining = duration;
+    if (mode) this.gameMode = mode;
+    this.matchState = 'in_progress';
+
+    // Reset scores & damage
+    this.teamScores = { blue: 0, red: 0 };
+    const map = ARENA_MAPS[this.currentMapId] || ARENA_MAPS.catacombs!;
+    this.players.forEach((p, idx) => {
+      const spawn = map.spawnPoints[idx % map.spawnPoints.length] || { x: 400, y: 400 };
+      p.x = spawn.x;
+      p.y = spawn.y;
+      p.health = p.maxHealth;
+      p.healthLag = p.maxHealth;
+      p.mana = p.maxMana;
+      p.isAlive = true;
+      p.hasShield = true;
+      p.shieldDuration = 2.5;
+      p.score = 0;
+      p.kills = 0;
+      p.deaths = 0;
+      p.damageDealt = 0;
+      if (this.gameMode === 'teams') {
+        p.team = idx % 2 === 0 ? 'blue' : 'red';
+      } else {
+        p.team = 'none';
+      }
+    });
+
+    this.projectiles = [];
+    this.visualEffects = [];
+    this.floatingNumbers = [];
+    this.addKillFeedItem(`⚡ Match Started! Mode: ${this.gameMode.toUpperCase()} · Duration: ${Math.round(this.matchDuration / 60)}m`);
+    this.audio.playVictory();
+  }
+
+  setPlayerTeam(playerId: string, team: 'blue' | 'red' | 'none') {
+    const pl = this.players.find((p) => p.id === playerId);
+    if (pl) {
+      pl.team = team;
+      // In 1v1 vs bot, put bot on opposing team
+      if (pl.id === this.localPlayer.id && this.gameMode === 'teams') {
+        this.botPlayer.team = team === 'blue' ? 'red' : 'blue';
+      }
+    }
+  }
+
+  setGameMode(mode: 'ffa' | 'teams') {
+    this.gameMode = mode;
+    if (mode === 'teams') {
+      this.localPlayer.team = 'blue';
+      this.botPlayer.team = 'red';
+    } else {
+      this.localPlayer.team = 'none';
+      this.botPlayer.team = 'none';
+    }
+  }
+
+  rematch() {
+    this.matchState = 'waiting';
+    this.matchTimeRemaining = this.matchDuration;
+    this.teamScores = { blue: 0, red: 0 };
+    const map = ARENA_MAPS[this.currentMapId] || ARENA_MAPS.catacombs!;
+    this.players.forEach((p, idx) => {
+      const spawn = map.spawnPoints[idx % map.spawnPoints.length] || { x: 400, y: 400 };
+      p.x = spawn.x;
+      p.y = spawn.y;
+      p.health = p.maxHealth;
+      p.healthLag = p.maxHealth;
+      p.mana = p.maxMana;
+      p.isAlive = true;
+      p.hasShield = true;
+      p.shieldDuration = 2.0;
+      p.score = 0;
+      p.kills = 0;
+      p.deaths = 0;
+      p.damageDealt = 0;
+    });
+    this.projectiles = [];
+    this.visualEffects = [];
+    this.floatingNumbers = [];
   }
 
   setMap(mapId: string) {
@@ -197,8 +335,18 @@ export class MagicDuelGame {
     const p = this.localPlayer;
     const bot = this.botPlayer;
 
+    // 0. Update Match Timer
+    if (this.matchState === 'in_progress') {
+      this.matchTimeRemaining = Math.max(0, this.matchTimeRemaining - dt);
+      if (this.matchTimeRemaining <= 0) {
+        this.matchState = 'ended';
+        this.addKillFeedItem('🏁 Match Ended! Time is up!');
+        this.audio.playVictory();
+      }
+    }
+
     // 1. Process Local Player Input
-    if (p.isAlive) {
+    if (p.isAlive && this.matchState !== 'ended') {
       // Movement
       const move = this.input.getMovementVector();
       p.move(move.x, move.y, dt, map.obstacles, map.width, map.height);
@@ -244,21 +392,23 @@ export class MagicDuelGame {
     p.update(dt, map.obstacles, map.width, map.height);
     bot.update(dt, map.obstacles, map.width, map.height);
 
-    // 4. Update Bot AI
-    this.botAI.update(
-      dt,
-      p,
-      this.projectiles,
-      map.obstacles,
-      map.width,
-      map.height,
-      (ownerId, spellType, x, y, angleDeg) => {
-        this.spawnProjectile(ownerId, spellType, x, y, angleDeg);
-        if (spellType === 'fireball') this.audio.playFireball();
-        else if (spellType === 'frost') this.audio.playFrost();
-        else if (spellType === 'lightning') this.audio.playLightning();
-      },
-    );
+    // 4. Update Bot AI (only during match or practice, frozen when ended)
+    if (this.matchState !== 'ended') {
+      this.botAI.update(
+        dt,
+        p,
+        this.projectiles,
+        map.obstacles,
+        map.width,
+        map.height,
+        (ownerId, spellType, x, y, angleDeg) => {
+          this.spawnProjectile(ownerId, spellType, x, y, angleDeg);
+          if (spellType === 'fireball') this.audio.playFireball();
+          else if (spellType === 'frost') this.audio.playFrost();
+          else if (spellType === 'lightning') this.audio.playLightning();
+        },
+      );
+    }
 
     // 5. Update Projectiles & Check Collisions
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
@@ -294,6 +444,16 @@ export class MagicDuelGame {
         for (const target of this.players) {
           if (target.id === proj.ownerId || !target.isAlive) continue;
 
+          // FRIENDLY FIRE FILTER: Same team players cannot hit each other!
+          if (
+            this.gameMode === 'teams' &&
+            proj.team !== 'none' &&
+            target.team !== 'none' &&
+            proj.team === target.team
+          ) {
+            continue; // Projectile passes right through teammates
+          }
+
           if (
             circleIntersectsCircle(
               proj.x,
@@ -308,6 +468,7 @@ export class MagicDuelGame {
             this.spawnExplosion(proj.x, proj.y, proj.spellType);
 
             const result = target.takeDamage(proj.damage, proj.spellType);
+            const attacker = this.players.find((pl) => pl.id === proj.ownerId);
 
             if (result.absorbed) {
               this.addFloatingNumber(target.x, target.y - 30, '🛡️ SHIELDED', '#38bdf8');
@@ -321,23 +482,28 @@ export class MagicDuelGame {
                     : '#ef4444';
               this.addFloatingNumber(target.x, target.y - 30, `-${result.damageDealt}`, color);
 
+              if (attacker) {
+                attacker.damageDealt = (attacker.damageDealt || 0) + result.damageDealt;
+              }
+
               if (target.id === p.id) {
                 this.camera.triggerShake(9);
               }
 
               if (result.killed) {
-                const killer = this.players.find((pl) => pl.id === proj.ownerId);
-                if (killer) {
-                  killer.kills += 1;
-                  killer.score += 100;
+                if (attacker) {
+                  attacker.kills += 1;
+                  attacker.score += 100;
+                  if (attacker.team === 'blue') this.teamScores.blue += 100;
+                  else if (attacker.team === 'red') this.teamScores.red += 100;
                 }
                 const bannerText =
-                  killer?.id === p.id
+                  attacker?.id === p.id
                     ? `🔥 You eliminated ${target.name}!`
-                    : `💀 You were eliminated by ${killer?.name}!`;
+                    : `💀 You were eliminated by ${attacker?.name}!`;
                 this.addKillFeedItem(bannerText);
 
-                if (killer?.id === p.id) {
+                if (attacker?.id === p.id) {
                   this.audio.playVictory();
                 }
               }
@@ -383,9 +549,30 @@ export class MagicDuelGame {
         playerScore: p.score,
         playerKills: p.kills,
         playerDeaths: p.deaths,
+        playerDamageDealt: p.damageDealt,
         botHealth: bot.health,
         cooldowns: p.cooldowns,
         activeSpell: this.input.activeSpell,
+        matchState: this.matchState,
+        matchTimeRemaining: this.matchTimeRemaining,
+        matchDuration: this.matchDuration,
+        gameMode: this.gameMode,
+        hostId: this.hostId,
+        isHost: this.localPlayer.isAdmin || this.localPlayer.id === this.hostId,
+        teamScores: { ...this.teamScores },
+        players: this.players.map((pl) => ({
+          id: pl.id,
+          name: pl.name,
+          isBot: pl.isBot,
+          colorIndex: pl.colorIndex,
+          team: pl.team,
+          isAdmin: pl.isAdmin,
+          score: pl.score,
+          kills: pl.kills,
+          deaths: pl.deaths,
+          damageDealt: pl.damageDealt,
+          health: pl.health,
+        })),
       });
     }
   }
@@ -409,7 +596,9 @@ export class MagicDuelGame {
     y: number,
     angleDeg: number,
   ) {
-    const proj = new Projectile(this.nextProjId++, ownerId, spellType, x, y, angleDeg);
+    const owner = this.players.find((pl) => pl.id === ownerId);
+    const team = owner?.team ?? 'none';
+    const proj = new Projectile(this.nextProjId++, ownerId, spellType, x, y, angleDeg, team);
     this.projectiles.push(proj);
   }
 

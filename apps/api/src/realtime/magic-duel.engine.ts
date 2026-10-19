@@ -150,6 +150,11 @@ export class MagicDuelEngine {
       visualEffects: GameVisualEffect[];
       killFeed: GameKillFeedItem[];
       matchState: 'waiting' | 'in_progress' | 'ended';
+      matchDuration: number;
+      matchTimeRemaining: number;
+      hostId: string;
+      gameMode: 'ffa' | 'teams';
+      teamScores: { blue: number; red: number };
       matchTimer: number;
       roundResetTimer: number;
       winnerId: string | null;
@@ -184,7 +189,12 @@ export class MagicDuelEngine {
         projectiles: [],
         visualEffects: [],
         killFeed: [],
-        matchState: 'in_progress',
+        matchState: 'waiting',
+        matchDuration: 120,
+        matchTimeRemaining: 120,
+        hostId: userId,
+        gameMode: 'ffa',
+        teamScores: { blue: 0, red: 0 },
         matchTimer: 0,
         roundResetTimer: 0,
         winnerId: null,
@@ -196,12 +206,20 @@ export class MagicDuelEngine {
 
     void socket.join(key);
 
+    // First person becomes host
+    const isFirstPlayer = Array.from(room.players.values()).filter((p) => !p.isBot).length === 0;
+    if (isFirstPlayer) {
+      room.hostId = userId;
+    }
+
     // Pick spawn point
     const spawnIdx = room.players.size % room.map.spawnPoints.length;
     const spawn = room.map.spawnPoints[spawnIdx] || { x: 400, y: 400 };
 
     const playerColors = [0, 1, 2, 3];
     const colorIndex = playerColors[room.players.size % playerColors.length];
+
+    const team = room.gameMode === 'teams' ? (room.players.size % 2 === 0 ? 'blue' : 'red') : 'none';
 
     const player: InternalPlayer = {
       id: userId,
@@ -217,6 +235,9 @@ export class MagicDuelEngine {
       kills: 0,
       deaths: 0,
       score: 0,
+      damageDealt: 0,
+      team,
+      isAdmin: room.hostId === userId,
       hasShield: true,
       shieldDuration: 2.0, // Free 2s shield on spawn
       isAlive: true,
@@ -243,7 +264,7 @@ export class MagicDuelEngine {
     };
 
     room.players.set(userId, player);
-    logger.info({ key, userId, displayName }, 'player joined Magic Duel');
+    logger.info({ key, userId, displayName, isHost: player.isAdmin }, 'player joined Magic Duel');
 
     // If only 1 human player and no bot, spawn a Sparring Bot!
     this.ensureBotPopulation(room);
@@ -255,7 +276,7 @@ export class MagicDuelEngine {
 
     // Immediately send player assignment and current snapshot
     socket.emit('game:init', { playerId: userId });
-    socket.emit('game:state', this.buildSnapshot(room));
+    this.io.to(key).emit('game:state', this.buildSnapshot(room));
   }
 
   public leaveGame(workspaceId: string, zoneId: string, userId: string): void {
@@ -267,8 +288,17 @@ export class MagicDuelEngine {
     if (p?.socket) {
       void p.socket.leave(key);
     }
+    const leavingWasHost = room.hostId === userId;
     room.players.delete(userId);
     logger.info({ key, userId }, 'player left Magic Duel');
+
+    if (leavingWasHost) {
+      const nextHost = Array.from(room.players.values()).find((pl) => !pl.isBot);
+      if (nextHost) {
+        room.hostId = nextHost.id;
+        nextHost.isAdmin = true;
+      }
+    }
 
     // Count remaining human players
     const humanCount = Array.from(room.players.values()).filter((p) => !p.isBot).length;
@@ -282,7 +312,105 @@ export class MagicDuelEngine {
     } else {
       // Re-balance bots if needed
       this.ensureBotPopulation(room);
+      this.io.to(key).emit('game:state', this.buildSnapshot(room));
     }
+  }
+
+  public startMatch(
+    workspaceId: string,
+    zoneId: string,
+    userId: string,
+    duration = 120,
+    gameMode: 'ffa' | 'teams' = 'ffa',
+  ): void {
+    const key = gameRoomKey(workspaceId, zoneId);
+    const room = this.rooms.get(key);
+    if (!room) return;
+
+    if (room.hostId !== userId) {
+      logger.warn({ userId, hostId: room.hostId }, 'non-host attempted to start match');
+      return;
+    }
+
+    room.matchDuration = duration;
+    room.matchTimeRemaining = duration;
+    room.gameMode = gameMode;
+    room.matchState = 'in_progress';
+    room.teamScores = { blue: 0, red: 0 };
+    room.projectiles = [];
+    room.visualEffects = [];
+
+    let i = 0;
+    for (const player of room.players.values()) {
+      const pt = room.map.spawnPoints[i % room.map.spawnPoints.length] || { x: 300, y: 300 };
+      player.posX = pt.x;
+      player.posY = pt.y;
+      player.health = 100;
+      player.mana = 80;
+      player.isAlive = true;
+      player.hasShield = true;
+      player.shieldDuration = 2.5;
+      player.kills = 0;
+      player.deaths = 0;
+      player.score = 0;
+      player.damageDealt = 0;
+      if (gameMode === 'teams') {
+        player.team = i % 2 === 0 ? 'blue' : 'red';
+      } else {
+        player.team = 'none';
+      }
+      i++;
+    }
+
+    this.io.to(key).emit('game:state', this.buildSnapshot(room));
+  }
+
+  public setTeam(
+    workspaceId: string,
+    zoneId: string,
+    userId: string,
+    team: 'blue' | 'red' | 'none',
+  ): void {
+    const key = gameRoomKey(workspaceId, zoneId);
+    const room = this.rooms.get(key);
+    if (!room) return;
+
+    const player = room.players.get(userId);
+    if (player) {
+      player.team = team;
+      this.io.to(key).emit('game:state', this.buildSnapshot(room));
+    }
+  }
+
+  public rematch(workspaceId: string, zoneId: string, _userId?: string): void {
+    const key = gameRoomKey(workspaceId, zoneId);
+    const room = this.rooms.get(key);
+    if (!room) return;
+
+    room.matchState = 'waiting';
+    room.matchTimeRemaining = room.matchDuration;
+    room.teamScores = { blue: 0, red: 0 };
+    room.projectiles = [];
+    room.visualEffects = [];
+
+    let i = 0;
+    for (const player of room.players.values()) {
+      const pt = room.map.spawnPoints[i % room.map.spawnPoints.length] || { x: 300, y: 300 };
+      player.posX = pt.x;
+      player.posY = pt.y;
+      player.health = 100;
+      player.mana = 80;
+      player.isAlive = true;
+      player.hasShield = true;
+      player.shieldDuration = 2.0;
+      player.kills = 0;
+      player.deaths = 0;
+      player.score = 0;
+      player.damageDealt = 0;
+      i++;
+    }
+
+    this.io.to(key).emit('game:state', this.buildSnapshot(room));
   }
 
   public handleInput(
@@ -413,12 +541,22 @@ export class MagicDuelEngine {
     const dt = 0.0166; // 60 FPS delta
     room.matchTimer += dt;
 
+    // Countdown match timer
+    if (room.matchState === 'in_progress') {
+      room.matchTimeRemaining = Math.max(0, room.matchTimeRemaining - dt);
+      if (room.matchTimeRemaining <= 0) {
+        room.matchState = 'ended';
+      }
+    }
+
     // Clean old visual effects
     const now = Date.now();
     room.visualEffects = room.visualEffects.filter((fx) => now - fx.createdAt < fx.duration * 1000);
 
     // Update AI Bots
-    this.updateBots(room, dt);
+    if (room.matchState !== 'ended') {
+      this.updateBots(room, dt);
+    }
 
     // Update Players
     for (const player of room.players.values()) {
@@ -489,7 +627,7 @@ export class MagicDuelEngine {
       this.movePlayerWithCollision(room, player, vx, vy);
 
       // Handle spell casting
-      if (player.isFiring) {
+      if (player.isFiring && room.matchState !== 'ended') {
         this.castPlayerSpell(room, player);
       }
     }
@@ -551,6 +689,7 @@ export class MagicDuelEngine {
       damage: spell.damage,
       radius: spell.radius,
       lifetime: player.activeSpell === 'lightning' ? 1.2 : 3.5,
+      team: player.team || 'none',
     };
 
     room.projectiles.push(proj);
@@ -635,9 +774,22 @@ export class MagicDuelEngine {
       for (const target of room.players.values()) {
         if (!target.isAlive || target.id === proj.ownerId) continue;
 
+        // Friendly fire filter: same team wizards cannot hit each other!
+        if (
+          room.gameMode === 'teams' &&
+          proj.team &&
+          target.team &&
+          proj.team !== 'none' &&
+          target.team !== 'none' &&
+          proj.team === target.team
+        ) {
+          continue; // Friendly fire blocked!
+        }
+
         const dist = Math.hypot(target.posX - proj.posX, target.posY - proj.posY);
         if (dist <= 22 + proj.radius) {
           hitPlayer = true;
+          const attacker = room.players.get(proj.ownerId);
 
           // If shielded: deflect/absorb
           if (target.hasShield) {
@@ -654,8 +806,13 @@ export class MagicDuelEngine {
           }
 
           // Deal damage
+          const dmgDealt = Math.min(target.health, proj.damage);
           target.health = Math.max(0, target.health - proj.damage);
           target.hitFlashTimer = 0.2;
+
+          if (attacker) {
+            attacker.damageDealt = (attacker.damageDealt || 0) + dmgDealt;
+          }
 
           if (proj.spellType === 'frost') {
             target.slowTimer = 2.0; // Slowed for 2 seconds
@@ -677,15 +834,16 @@ export class MagicDuelEngine {
             target.deaths += 1;
             target.respawnTimer = 3.0;
 
-            const killer = room.players.get(proj.ownerId);
-            if (killer) {
-              killer.kills += 1;
-              killer.score += 100;
+            if (attacker) {
+              attacker.kills += 1;
+              attacker.score += 100;
+              if (attacker.team === 'blue') room.teamScores.blue += 100;
+              else if (attacker.team === 'red') room.teamScores.red += 100;
             }
 
             room.killFeed.unshift({
               id: `kf-${Date.now()}-${Math.random()}`,
-              killerName: killer?.name || 'Wizard',
+              killerName: attacker?.name || 'Wizard',
               victimName: target.name,
               spellType: proj.spellType,
               timestamp: Date.now(),
@@ -760,6 +918,7 @@ export class MagicDuelEngine {
 
       for (const other of room.players.values()) {
         if (other.id === bot.id || !other.isAlive) continue;
+        if (room.gameMode === 'teams' && bot.team !== 'none' && other.team === bot.team) continue;
         const d = Math.hypot(other.posX - bot.posX, other.posY - bot.posY);
         if (d < nearestDist) {
           nearestDist = d;
@@ -832,6 +991,9 @@ export class MagicDuelEngine {
       kills: p.kills,
       deaths: p.deaths,
       score: p.score,
+      damageDealt: p.damageDealt || 0,
+      team: p.team || 'none',
+      isAdmin: p.isAdmin || false,
       hasShield: p.hasShield,
       shieldDuration: p.shieldDuration,
       isAlive: p.isAlive,
@@ -858,6 +1020,11 @@ export class MagicDuelEngine {
       matchTimer: room.matchTimer,
       roundResetTimer: room.roundResetTimer,
       winnerId: room.winnerId,
+      matchDuration: room.matchDuration,
+      matchTimeRemaining: room.matchTimeRemaining,
+      hostId: room.hostId,
+      gameMode: room.gameMode,
+      teamScores: { ...room.teamScores },
     };
   }
 }

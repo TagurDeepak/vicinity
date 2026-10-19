@@ -79,6 +79,18 @@ export interface ClientToServerEvents {
   'game:leave': (payload: { workspaceId: string; zoneId: string }) => void;
   'game:input': (payload: { workspaceId: string; zoneId: string; input: GameClientInput }) => void;
   'game:select-map': (payload: { workspaceId: string; zoneId: string; mapId: GameMapTheme }) => void;
+  'game:start-match': (payload: {
+    workspaceId: string;
+    zoneId: string;
+    matchDuration?: number;
+    gameMode?: 'ffa' | 'teams';
+  }) => void;
+  'game:set-team': (payload: {
+    workspaceId: string;
+    zoneId: string;
+    team: 'blue' | 'red' | 'none';
+  }) => void;
+  'game:rematch': (payload: { workspaceId: string; zoneId: string }) => void;
 }
 
 export interface LockedRoomState {

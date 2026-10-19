@@ -60,6 +60,9 @@ export class PlayerEntity {
   kills: number;
   deaths: number;
   score: number;
+  damageDealt: number;
+  team: 'blue' | 'red' | 'none';
+  isAdmin: boolean;
 
   isAlive: boolean;
   respawnTimer: number;
@@ -106,6 +109,9 @@ export class PlayerEntity {
     this.kills = 0;
     this.deaths = 0;
     this.score = 0;
+    this.damageDealt = 0;
+    this.team = isBot ? 'red' : 'blue';
+    this.isAdmin = false;
 
     this.isAlive = true;
     this.respawnTimer = 0;
@@ -338,6 +344,7 @@ export class Projectile {
   lifetime: number;
   color: string;
   facingAngle: number;
+  team: 'blue' | 'red' | 'none';
 
   constructor(
     id: number,
@@ -346,6 +353,7 @@ export class Projectile {
     spawnX: number,
     spawnY: number,
     angleDeg: number,
+    team: 'blue' | 'red' | 'none' = 'none',
   ) {
     const def = SPELLS[spellType] ?? SPELLS.fireball!;
     this.id = id;
@@ -357,6 +365,7 @@ export class Projectile {
     this.lifetime = def.lifetime ?? 3.0;
     this.color = def.color;
     this.facingAngle = angleDeg;
+    this.team = team;
 
     const rad = (angleDeg * Math.PI) / 180;
     this.velX = Math.cos(rad) * this.speed;

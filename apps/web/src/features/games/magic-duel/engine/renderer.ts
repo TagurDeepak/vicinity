@@ -421,8 +421,20 @@ export class GameRenderer {
       ctx.restore();
     }
 
-    // 3. Selection Ring on Ground
-    if (isLocal) {
+    // 3. Selection Ring on Ground (Team colored or local/enemy)
+    if (player.team === 'blue') {
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = isLocal ? 2.5 : 2;
+      ctx.beginPath();
+      ctx.ellipse(0, 18, 24, 11, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (player.team === 'red') {
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = isLocal ? 2.5 : 2;
+      ctx.beginPath();
+      ctx.ellipse(0, 18, 24, 11, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (isLocal) {
       ctx.strokeStyle = '#38bdf8';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -509,15 +521,25 @@ export class GameRenderer {
 
     ctx.restore();
 
-    // 7. World-Space Overhead UI (Name + Mini Health Bar)
+    // 7. World-Space Overhead UI (Name + Team + Admin + Mini Health Bar)
     ctx.save();
     ctx.font = 'bold 11px system-ui, sans-serif';
     ctx.textAlign = 'center';
 
-    const displayName = (isLocal ? '⭐ ' : '') + player.name + (player.isBot ? ' [BOT]' : '');
+    const teamBadge = player.team === 'blue' ? ' [BLUE]' : player.team === 'red' ? ' [RED]' : '';
+    const adminBadge = player.isAdmin ? '👑 ' : '';
+    const localStar = isLocal ? '⭐ ' : '';
+    const botBadge = player.isBot ? ' [BOT]' : '';
+    const displayName = `${adminBadge}${localStar}${player.name}${botBadge}${teamBadge}`;
+
     ctx.fillStyle = '#000000';
     ctx.fillText(displayName, player.x + 1, player.y - 43);
-    ctx.fillStyle = isLocal ? '#38bdf8' : player.isBot ? '#f87171' : '#f8fafc';
+
+    let nameColor = isLocal ? '#38bdf8' : player.isBot ? '#f87171' : '#f8fafc';
+    if (player.team === 'blue') nameColor = '#38bdf8';
+    else if (player.team === 'red') nameColor = '#f87171';
+
+    ctx.fillStyle = nameColor;
     ctx.fillText(displayName, player.x, player.y - 44);
 
     // Mini Health Bar
