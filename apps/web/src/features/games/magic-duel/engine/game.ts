@@ -72,6 +72,8 @@ export class MagicDuelGame {
   floatingNumbers: FloatingNumber[];
   killFeed: KillFeedItem[];
 
+  localPlayerId: string;
+  localPlayerName: string;
   localPlayer: PlayerEntity;
   botPlayer: PlayerEntity;
   botAI: BotAI;
@@ -92,12 +94,20 @@ export class MagicDuelGame {
 
   private animFrameId: number | null = null;
 
-  constructor(canvas: HTMLCanvasElement, initialMapId = 'catacombs') {
+  constructor(
+    canvas: HTMLCanvasElement,
+    initialMapId = 'catacombs',
+    localPlayerId = 'player-1',
+    localPlayerName = 'Wizard (You)',
+  ) {
     this.canvas = canvas;
     this.camera = new Camera();
     this.input = new InputManager(canvas);
     this.audio = new GameAudio();
     this.renderer = new GameRenderer(canvas);
+
+    this.localPlayerId = localPlayerId;
+    this.localPlayerName = localPlayerName;
 
     this.currentMapId = ARENA_MAPS[initialMapId] ? initialMapId : 'catacombs';
     this.players = [];
@@ -110,7 +120,7 @@ export class MagicDuelGame {
     this.matchDuration = 120;
     this.matchTimeRemaining = 120;
     this.gameMode = 'ffa';
-    this.hostId = 'player-1';
+    this.hostId = this.localPlayerId;
     this.teamScores = { blue: 0, red: 0 };
 
     this.lastFrameTime = performance.now();
@@ -126,8 +136,8 @@ export class MagicDuelGame {
     const spawnP2 = map.spawnPoints[1] || { x: 1620, y: 1020 };
 
     this.localPlayer = new PlayerEntity(
-      'player-1',
-      'Wizard (You)',
+      this.localPlayerId,
+      this.localPlayerName,
       0,
       spawnP1.x,
       spawnP1.y,
@@ -167,14 +177,27 @@ export class MagicDuelGame {
     this.camera.resize(rw, rh);
   }
 
+  updateLocalPlayerInfo(id: string, name: string) {
+    this.localPlayerId = id;
+    this.localPlayerName = name;
+    if (this.localPlayer) {
+      this.localPlayer.id = id;
+      this.localPlayer.name = name;
+    }
+    if (this.hostId === 'player-1') {
+      this.hostId = id;
+    }
+  }
+
   initGame() {
     const map = ARENA_MAPS[this.currentMapId] || ARENA_MAPS.catacombs!;
     const spawnP1 = map.spawnPoints[0] || { x: 380, y: 380 };
     const spawnP2 = map.spawnPoints[1] || { x: 1620, y: 1020 };
 
-    const playerName = this.localPlayer ? this.localPlayer.name : 'Wizard (You)';
+    const playerId = this.localPlayerId || this.localPlayer?.id || 'player-1';
+    const playerName = this.localPlayerName || this.localPlayer?.name || 'Wizard (You)';
     this.localPlayer = new PlayerEntity(
-      'player-1',
+      playerId,
       playerName,
       0,
       spawnP1.x,
@@ -363,8 +386,8 @@ export class MagicDuelGame {
         }
       }
 
-      // Casting
-      if (this.input.isMouseDown) {
+      // Casting (strictly only during active match; locked in waiting area)
+      if (this.input.isMouseDown && this.matchState === 'in_progress') {
         const spellType = this.input.activeSpell;
         const def = SPELLS[spellType] || SPELLS.fireball!;
         if ((p.cooldowns[spellType] ?? 0) <= 0 && p.mana >= def.manaCost) {
@@ -392,8 +415,8 @@ export class MagicDuelGame {
     p.update(dt, map.obstacles, map.width, map.height);
     bot.update(dt, map.obstacles, map.width, map.height);
 
-    // 4. Update Bot AI (only during match or practice, frozen when ended)
-    if (this.matchState !== 'ended') {
+    // 4. Update Bot AI (strictly only during active match; idle during waiting or ended)
+    if (this.matchState === 'in_progress') {
       this.botAI.update(
         dt,
         p,

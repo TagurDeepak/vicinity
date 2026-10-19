@@ -553,9 +553,17 @@ export class MagicDuelEngine {
     const now = Date.now();
     room.visualEffects = room.visualEffects.filter((fx) => now - fx.createdAt < fx.duration * 1000);
 
-    // Update AI Bots
-    if (room.matchState !== 'ended') {
+    // Update AI Bots (strictly during active match; idle during waiting or ended)
+    if (room.matchState === 'in_progress') {
       this.updateBots(room, dt);
+    } else {
+      for (const bot of room.players.values()) {
+        if (bot.isBot) {
+          bot.moveX = 0;
+          bot.moveY = 0;
+          bot.isFiring = false;
+        }
+      }
     }
 
     // Update Players
@@ -626,8 +634,8 @@ export class MagicDuelEngine {
       const vy = player.moveY * speed * dt;
       this.movePlayerWithCollision(room, player, vx, vy);
 
-      // Handle spell casting
-      if (player.isFiring && room.matchState !== 'ended') {
+      // Handle spell casting (strictly during active match)
+      if (player.isFiring && room.matchState === 'in_progress') {
         this.castPlayerSpell(room, player);
       }
     }

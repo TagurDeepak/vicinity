@@ -53,6 +53,11 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
   const killsTextRef = useRef<HTMLElement | null>(null);
   const deathsTextRef = useRef<HTMLElement | null>(null);
 
+  // Synchronization refs to prevent 60 FPS React re-render flooding and name flickering
+  const isConnectedRef = useRef<boolean>(false);
+  const lastSecsRef = useRef<number>(-1);
+  const lastSummaryJsonRef = useRef<string>('');
+
   // Cooldown states for React hotbar
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({
     fireball: 0,
@@ -62,18 +67,23 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     dash: 0,
   });
 
+  // Keep local player identity in sync with user
+  useEffect(() => {
+    if (gameRef.current && user) {
+      gameRef.current.updateLocalPlayerInfo(user.id, user.displayName || 'Wizard (You)');
+    }
+  }, [user?.id, user?.displayName]);
+
   // 1. Initialize Game Engine & Setup ResizeObserver
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    const game = new MagicDuelGame(canvas, activeMap);
+    const initialId = user?.id || 'player-1';
+    const initialName = user?.displayName || 'Wizard (You)';
+    const game = new MagicDuelGame(canvas, activeMap, initialId, initialName);
     gameRef.current = game;
-
-    if (user?.displayName) {
-      game.localPlayer.name = user.displayName;
-    }
 
     // Set initial size
     const rect = container.getBoundingClientRect();
@@ -81,7 +91,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
     // Bind stats update for HUD
     game.onStatsChange = (stats: GameStats) => {
-      // 1. Health Bar & Animated Red Lag Fill
+      // 1. Health Bar & Animated Red Lag Fill (Direct DOM)
       if (hpFillRef.current && hpLagFillRef.current && hpTextRef.current) {
         const hpPct = Math.max(0, (stats.playerHealth / stats.playerMaxHealth) * 100);
         const lagPct = Math.max(0, (stats.playerHealthLag / stats.playerMaxHealth) * 100);
@@ -90,14 +100,14 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         hpTextRef.current.textContent = `${Math.ceil(stats.playerHealth)} / ${stats.playerMaxHealth}`;
       }
 
-      // 2. Mana Bar
+      // 2. Mana Bar (Direct DOM)
       if (manaFillRef.current && manaTextRef.current) {
         const manaPct = Math.max(0, (stats.playerMana / stats.playerMaxMana) * 100);
         manaFillRef.current.style.width = `${manaPct}%`;
         manaTextRef.current.textContent = `${Math.ceil(stats.playerMana)} / ${stats.playerMaxMana}`;
       }
 
-      // 3. Combat Score Badges
+      // 3. Combat Score Badges (Direct DOM)
       if (scoreTextRef.current) scoreTextRef.current.textContent = `${stats.playerScore}`;
       if (killsTextRef.current) killsTextRef.current.textContent = `${stats.playerKills}`;
       if (deathsTextRef.current) deathsTextRef.current.textContent = `${stats.playerDeaths}`;
@@ -108,14 +118,27 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       }
 
       // 5. Match & Lobby State
-      setMatchState(stats.matchState);
-      setMatchTimeRemaining(stats.matchTimeRemaining);
-      setMatchDuration(stats.matchDuration);
-      setGameMode(stats.gameMode);
-      setIsHost(stats.isHost);
-      setHostId(stats.hostId);
-      setTeamScores(stats.teamScores);
-      setPlayersSummary(stats.players);
+      // When connected to server socket, server is the authoritative source!
+      // Only drive match/player state from local engine if socket is NOT connected (offline / arcade).
+      if (!isConnectedRef.current) {
+        setMatchState((prev) => (prev !== stats.matchState ? stats.matchState : prev));
+        const roundedSecs = Math.max(0, Math.ceil(stats.matchTimeRemaining));
+        if (roundedSecs !== lastSecsRef.current) {
+          lastSecsRef.current = roundedSecs;
+          setMatchTimeRemaining(roundedSecs);
+        }
+        setMatchDuration((prev) => (prev !== stats.matchDuration ? stats.matchDuration : prev));
+        setGameMode((prev) => (prev !== stats.gameMode ? stats.gameMode : prev));
+        setIsHost((prev) => (prev !== stats.isHost ? stats.isHost : prev));
+        setHostId((prev) => (prev !== stats.hostId ? stats.hostId : prev));
+        setTeamScores(stats.teamScores);
+
+        const summaryJson = JSON.stringify(stats.players);
+        if (summaryJson !== lastSummaryJsonRef.current) {
+          lastSummaryJsonRef.current = summaryJson;
+          setPlayersSummary(stats.players);
+        }
+      }
     };
 
     game.onKillFeedChange = (feed: KillFeedItem[]) => {
@@ -167,39 +190,58 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
     const onConnect = () => {
       setIsConnected(true);
+      isConnectedRef.current = true;
       socket.emit('game:join', { workspaceId, zoneId });
     };
 
     const onDisconnect = () => {
       setIsConnected(false);
+      isConnectedRef.current = false;
     };
 
     const onGameState = (state: any) => {
-      if (state.matchState) setMatchState(state.matchState);
-      if (typeof state.matchTimeRemaining === 'number') setMatchTimeRemaining(state.matchTimeRemaining);
-      if (typeof state.matchDuration === 'number') setMatchDuration(state.matchDuration);
-      if (state.gameMode) setGameMode(state.gameMode);
+      if (state.matchState) {
+        setMatchState((prev) => (prev !== state.matchState ? state.matchState : prev));
+      }
+      if (typeof state.matchTimeRemaining === 'number') {
+        const rounded = Math.max(0, Math.ceil(state.matchTimeRemaining));
+        if (rounded !== lastSecsRef.current) {
+          lastSecsRef.current = rounded;
+          setMatchTimeRemaining(rounded);
+        }
+      }
+      if (typeof state.matchDuration === 'number') {
+        setMatchDuration(state.matchDuration);
+      }
+      if (state.gameMode) {
+        setGameMode((prev) => (prev !== state.gameMode ? state.gameMode : prev));
+      }
       if (state.hostId) {
         setHostId(state.hostId);
         setIsHost(state.hostId === user?.id);
       }
-      if (state.teamScores) setTeamScores(state.teamScores);
+      if (state.teamScores) {
+        setTeamScores(state.teamScores);
+      }
       if (state.players) {
-        setPlayersSummary(
-          state.players.map((p: any) => ({
-            id: p.id,
-            name: p.name,
-            isBot: p.isBot,
-            colorIndex: p.colorIndex,
-            team: p.team || 'none',
-            isAdmin: p.isAdmin || false,
-            score: p.score,
-            kills: p.kills,
-            deaths: p.deaths,
-            damageDealt: p.damageDealt || 0,
-            health: p.health,
-          })),
-        );
+        const nextSummary: PlayerSummary[] = state.players.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          isBot: p.isBot,
+          colorIndex: p.colorIndex,
+          team: p.team || 'none',
+          isAdmin: p.isAdmin || false,
+          score: p.score,
+          kills: p.kills,
+          deaths: p.deaths,
+          damageDealt: p.damageDealt || 0,
+          health: p.health,
+        }));
+        const summaryJson = JSON.stringify(nextSummary);
+        if (summaryJson !== lastSummaryJsonRef.current) {
+          lastSummaryJsonRef.current = summaryJson;
+          setPlayersSummary(nextSummary);
+        }
       }
     };
 
@@ -230,6 +272,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
 
     return () => {
       clearInterval(inputTimer);
+      isConnectedRef.current = false;
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('game:state', onGameState);
@@ -303,10 +346,18 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
     SPELLS.dash!,
   ];
 
+  const isLocalPlayer = (playerId: string) => {
+    return (
+      playerId === user?.id ||
+      playerId === gameRef.current?.localPlayer.id ||
+      playerId === 'player-1'
+    );
+  };
+
   // Team filtered rosters
   const blueTeamPlayers = playersSummary.filter((p) => p.team === 'blue');
   const redTeamPlayers = playersSummary.filter((p) => p.team === 'red');
-  const localPlayerSummary = playersSummary.find((p) => p.id === gameRef.current?.localPlayer.id);
+  const localPlayerSummary = playersSummary.find((p) => isLocalPlayer(p.id));
 
   // Leaderboard sorted for Final Scoreboard
   const rankedPlayers = [...playersSummary].sort((a, b) => {
@@ -651,17 +702,20 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                         </span>
                       </div>
                       <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                        {blueTeamPlayers.map((p) => (
-                          <div
-                            key={p.id}
-                            className="flex items-center justify-between rounded-lg bg-sky-950/40 px-2.5 py-1 text-xs"
-                          >
-                            <span className="text-slate-200 truncate flex items-center gap-1">
-                              {p.isAdmin && '👑'} {p.name} {p.id === gameRef.current?.localPlayer.id && '(You)'}
-                            </span>
-                            <span className="text-[10px] text-sky-400 font-mono">READY</span>
-                          </div>
-                        ))}
+                        {blueTeamPlayers.map((p) => {
+                          const isLocal = isLocalPlayer(p.id);
+                          return (
+                            <div
+                              key={isLocal ? 'local-player' : p.id}
+                              className="flex items-center justify-between rounded-lg bg-sky-950/40 px-2.5 py-1 text-xs"
+                            >
+                              <span className="text-slate-200 truncate flex items-center gap-1">
+                                {p.isAdmin && '👑'} {p.name} {isLocal && '(You)'}
+                              </span>
+                              <span className="text-[10px] text-sky-400 font-mono">READY</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -689,17 +743,20 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                         </span>
                       </div>
                       <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                        {redTeamPlayers.map((p) => (
-                          <div
-                            key={p.id}
-                            className="flex items-center justify-between rounded-lg bg-red-950/40 px-2.5 py-1 text-xs"
-                          >
-                            <span className="text-slate-200 truncate flex items-center gap-1">
-                              {p.isAdmin && '👑'} {p.name} {p.id === gameRef.current?.localPlayer.id && '(You)'}
-                            </span>
-                            <span className="text-[10px] text-red-400 font-mono">READY</span>
-                          </div>
-                        ))}
+                        {redTeamPlayers.map((p) => {
+                          const isLocal = isLocalPlayer(p.id);
+                          return (
+                            <div
+                              key={isLocal ? 'local-player' : p.id}
+                              className="flex items-center justify-between rounded-lg bg-red-950/40 px-2.5 py-1 text-xs"
+                            >
+                              <span className="text-slate-200 truncate flex items-center gap-1">
+                                {p.isAdmin && '👑'} {p.name} {isLocal && '(You)'}
+                              </span>
+                              <span className="text-[10px] text-red-400 font-mono">READY</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -723,18 +780,21 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                   🧙 Connected Wizards ({playersSummary.length})
                 </span>
                 <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
-                  {playersSummary.map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs"
-                    >
-                      <span className="text-slate-200 truncate flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                        {p.isAdmin && '👑'} {p.name} {p.id === gameRef.current?.localPlayer.id && '(You)'}
-                      </span>
-                      <span className="text-[10px] font-bold text-amber-400">READY</span>
-                    </div>
-                  ))}
+                  {playersSummary.map((p) => {
+                    const isLocal = isLocalPlayer(p.id);
+                    return (
+                      <div
+                        key={isLocal ? 'local-player' : p.id}
+                        className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs"
+                      >
+                        <span className="text-slate-200 truncate flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                          {p.isAdmin && '👑'} {p.name} {isLocal && '(You)'}
+                        </span>
+                        <span className="text-[10px] font-bold text-amber-400">READY</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -817,13 +877,13 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-mono">
                   {rankedPlayers.map((p, idx) => {
-                    const isLocal = p.id === gameRef.current?.localPlayer.id;
+                    const isLocal = isLocalPlayer(p.id);
                     const rankMedals = ['🥇 1st', '🥈 2nd', '🥉 3rd'];
                     const medal = rankMedals[idx] || `#${idx + 1}`;
 
                     return (
                       <tr
-                        key={p.id}
+                        key={isLocal ? 'local-player' : p.id}
                         className={`transition ${
                           isLocal
                             ? 'bg-sky-500/15 border-l-4 border-l-sky-400 font-bold'
