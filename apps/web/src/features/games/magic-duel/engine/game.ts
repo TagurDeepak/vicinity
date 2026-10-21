@@ -269,20 +269,20 @@ export class MagicDuelGame {
 
           // Authoritative position reconciliation:
           // When the player is actively moving with keyboard, trust client prediction to avoid latency rubberbanding.
-          // Only snap if distance is large (> 140px) or player died / respawned.
+          // Only snap if distance is large (> 200px) or player died / respawned.
           const dx = sp.posX - this.localPlayer.x;
           const dy = sp.posY - this.localPlayer.y;
           const distSq = dx * dx + dy * dy;
           const move = this.input.getMovementVector();
           const isActivelyMoving = move.x !== 0 || move.y !== 0;
 
-          if (!this.localPlayer.isAlive || distSq > 140 * 140) {
+          if (!this.localPlayer.isAlive || distSq > 200 * 200) {
             this.localPlayer.x = sp.posX;
             this.localPlayer.y = sp.posY;
           } else if (!isActivelyMoving && distSq > 4) {
             // When stationary, gently ease to exact server coordinates
-            this.localPlayer.x += dx * 0.2;
-            this.localPlayer.y += dy * 0.2;
+            this.localPlayer.x += dx * 0.25;
+            this.localPlayer.y += dy * 0.25;
           }
         } else {
           // Remote human player or bot

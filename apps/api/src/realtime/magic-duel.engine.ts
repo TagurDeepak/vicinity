@@ -138,6 +138,22 @@ export function gameRoomKey(workspaceId: string, zoneId: string): string {
   return `game:${workspaceId}:${zoneId}`;
 }
 
+export function circleIntersectsRect(
+  cx: number,
+  cy: number,
+  r: number,
+  rx: number,
+  ry: number,
+  rw: number,
+  rh: number,
+): boolean {
+  const closestX = Math.max(rx, Math.min(cx, rx + rw));
+  const closestY = Math.max(ry, Math.min(cy, ry + rh));
+  const distX = cx - closestX;
+  const distY = cy - closestY;
+  return distX * distX + distY * distY < r * r;
+}
+
 export class MagicDuelEngine {
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
   private rooms = new Map<
@@ -950,41 +966,35 @@ export class MagicDuelEngine {
     vx: number,
     vy: number,
   ): void {
-    const radius = 24; // Match GAME_CONFIG.PLAYER_RADIUS
+    const r = 24; // Match GAME_CONFIG.PLAYER_RADIUS
+
+    // Move X with obstacle collisions
     let nextX = player.posX + vx;
-    let nextY = player.posY;
-
-    // Check X collision first
+    nextX = Math.max(r + 15, Math.min(room.map.width - r - 15, nextX));
+    let collidesX = false;
     for (const obs of room.map.obstacles) {
-      const minX = obs.x - radius;
-      const maxX = obs.x + obs.w + radius;
-      const minY = obs.y - radius;
-      const maxY = obs.y + obs.h + radius;
-
-      if (nextX > minX && nextX < maxX && nextY > minY && nextY < maxY) {
-        nextX = player.posX;
+      if (circleIntersectsRect(nextX, player.posY, r, obs.x, obs.y, obs.w, obs.h)) {
+        collidesX = true;
         break;
       }
     }
+    if (!collidesX) {
+      player.posX = nextX;
+    }
 
-    // Then check Y collision
-    let testY = player.posY + vy;
+    // Move Y with obstacle collisions
+    let nextY = player.posY + vy;
+    nextY = Math.max(r + 15, Math.min(room.map.height - r - 15, nextY));
+    let collidesY = false;
     for (const obs of room.map.obstacles) {
-      const minX = obs.x - radius;
-      const maxX = obs.x + obs.w + radius;
-      const minY = obs.y - radius;
-      const maxY = obs.y + obs.h + radius;
-
-      if (nextX > minX && nextX < maxX && testY > minY && testY < maxY) {
-        testY = player.posY;
+      if (circleIntersectsRect(player.posX, nextY, r, obs.x, obs.y, obs.w, obs.h)) {
+        collidesY = true;
         break;
       }
     }
-    nextY = testY;
-
-    // Bounds clamp
-    player.posX = Math.max(radius + 30, Math.min(room.map.width - radius - 30, nextX));
-    player.posY = Math.max(radius + 30, Math.min(room.map.height - radius - 30, nextY));
+    if (!collidesY) {
+      player.posY = nextY;
+    }
   }
 
   private updateBots(

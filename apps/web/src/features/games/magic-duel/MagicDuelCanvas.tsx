@@ -208,7 +208,15 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       gameRef.current?.syncServerState(state);
 
       if (state.matchState) {
-        setMatchState((prev) => (prev !== state.matchState ? state.matchState : prev));
+        setMatchState((prev) => {
+          if (prev !== state.matchState) {
+            if (state.matchState === 'in_progress') {
+              setShowLobbyModal(false);
+            }
+            return state.matchState;
+          }
+          return prev;
+        });
       }
       if (typeof state.matchTimeRemaining === 'number') {
         const rounded = Math.max(0, Math.ceil(state.matchTimeRemaining));
@@ -281,17 +289,16 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       const game = gameRef.current;
       if (!game || !socket.connected) return;
 
-      const inLobby = showLobbyModalRef.current;
       const isMatchRunning = game.matchState === 'in_progress';
-      const move = inLobby ? { x: 0, y: 0 } : game.input.getMovementVector();
+      const move = game.input.getMovementVector();
       const p = game.localPlayer;
       const input = {
         moveX: move.x,
         moveY: move.y,
         facingAngle: p.facingAngle,
         activeSpell: game.input.activeSpell as any,
-        isFiring: inLobby || !isMatchRunning ? false : game.input.isMouseDown,
-        isDashing: inLobby || !isMatchRunning ? false : game.input.consumeDash(),
+        isFiring: isMatchRunning ? game.input.isMouseDown : false,
+        isDashing: isMatchRunning ? game.input.consumeDash() : false,
       };
       socket.emit('game:input', { workspaceId, zoneId, input });
     }, 16);
