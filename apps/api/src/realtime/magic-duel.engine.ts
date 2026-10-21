@@ -719,6 +719,10 @@ export class MagicDuelEngine {
       player.hasShield = true;
       player.shieldDuration = 2.5;
 
+      if (player.isBot) {
+        player.isFiring = false;
+      }
+
       room.visualEffects.push({
         id: `fx-${Date.now()}-${Math.random()}`,
         type: 'cast_aura',
@@ -734,6 +738,18 @@ export class MagicDuelEngine {
     // Cast Projectile spells (fireball, frost, lightning)
     player.mana -= spell.manaCost;
     player.cooldowns[player.activeSpell] = spell.cooldown;
+
+    // Apply global cast delay (0.28s) to offensive spells so projectiles cannot be fired simultaneously
+    for (const key of ['fireball', 'frost', 'lightning'] as const) {
+      if (player.cooldowns[key] < 0.28) {
+        player.cooldowns[key] = 0.28;
+      }
+    }
+
+    // Reset bot firing state immediately so bot doesn't spam spells on every frame
+    if (player.isBot) {
+      player.isFiring = false;
+    }
 
     const rad = (player.facingAngle * Math.PI) / 180;
     const spawnDist = 25;
@@ -1066,7 +1082,7 @@ export class MagicDuelEngine {
 
       // Bot spell tactics
       if (now > bot.botNextActionTime) {
-        bot.botNextActionTime = now + 450 + Math.random() * 500;
+        bot.botNextActionTime = now + 650 + Math.random() * 600;
 
         // If high mana and low health, try shield
         if (bot.health < 40 && bot.cooldowns.shield <= 0 && bot.mana >= SPELL_CONFIGS.shield.manaCost && Math.random() < 0.6) {

@@ -566,15 +566,27 @@ export class GameRenderer {
 
   renderEffects(ctx: CanvasRenderingContext2D, visualEffects: VisualEffect[]) {
     for (const fx of visualEffects) {
-      const progress = fx.age / fx.duration;
+      const duration = Math.max(0.05, fx.duration || 0.35);
+      const progress = Math.min(1, Math.max(0, fx.age / duration));
       ctx.save();
       ctx.globalAlpha = Math.max(0, 1 - progress);
       ctx.fillStyle = fx.color;
       ctx.strokeStyle = fx.color;
 
       ctx.beginPath();
-      ctx.arc(fx.x, fx.y, 10 + progress * 40, 0, Math.PI * 2);
-      ctx.lineWidth = 3;
+      if (fx.type === 'cast_aura') {
+        ctx.arc(fx.x, fx.y, 6 + progress * 14, 0, Math.PI * 2);
+        ctx.lineWidth = 2;
+      } else if (fx.type === 'spark_explosion') {
+        ctx.arc(fx.x, fx.y, 8 + progress * 24, 0, Math.PI * 2);
+        ctx.lineWidth = 2;
+      } else if (fx.type === 'spell_clash') {
+        ctx.arc(fx.x, fx.y, 12 + progress * 22, 0, Math.PI * 2);
+        ctx.lineWidth = 2.5;
+      } else {
+        ctx.arc(fx.x, fx.y, 10 + progress * 32, 0, Math.PI * 2);
+        ctx.lineWidth = 2.5;
+      }
       ctx.stroke();
 
       ctx.restore();

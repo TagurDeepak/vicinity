@@ -263,17 +263,26 @@ export class MagicDuelGame {
           if (typeof sp.hitFlashTimer === 'number') {
             this.localPlayer.hitFlashTimer = sp.hitFlashTimer;
           }
+          if (sp.cooldowns) {
+            this.localPlayer.cooldowns = { ...sp.cooldowns };
+          }
 
-          // If local player died or distance from authoritative position is large (> 200px), snap position
+          // Authoritative position reconciliation:
+          // When the player is actively moving with keyboard, trust client prediction to avoid latency rubberbanding.
+          // Only snap if distance is large (> 140px) or player died / respawned.
           const dx = sp.posX - this.localPlayer.x;
           const dy = sp.posY - this.localPlayer.y;
           const distSq = dx * dx + dy * dy;
-          if (!this.localPlayer.isAlive || distSq > 200 * 200) {
+          const move = this.input.getMovementVector();
+          const isActivelyMoving = move.x !== 0 || move.y !== 0;
+
+          if (!this.localPlayer.isAlive || distSq > 140 * 140) {
             this.localPlayer.x = sp.posX;
             this.localPlayer.y = sp.posY;
-          } else if (distSq > 36 * 36) {
-            this.localPlayer.x += dx * 0.15;
-            this.localPlayer.y += dy * 0.15;
+          } else if (!isActivelyMoving && distSq > 4) {
+            // When stationary, gently ease to exact server coordinates
+            this.localPlayer.x += dx * 0.2;
+            this.localPlayer.y += dy * 0.2;
           }
         } else {
           // Remote human player or bot
@@ -332,16 +341,28 @@ export class MagicDuelGame {
 
     // Synchronize authoritative projectiles
     if (Array.isArray(serverState.projectiles)) {
-      this.projectiles = serverState.projectiles.map((sp: any) => {
-        const p = new Projectile(
-          sp.id,
-          sp.ownerId,
-          sp.spellType,
-          sp.posX,
-          sp.posY,
-          0,
-          sp.team ?? 'none',
-        );
+      const incomingIds = new Set(serverState.projectiles.map((p: any) => p.id));
+      this.projectiles = this.projectiles.filter((p) => incomingIds.has(p.id));
+
+      for (const sp of serverState.projectiles) {
+        let p = this.projectiles.find((proj) => proj.id === sp.id);
+        const angleDeg =
+          sp.velX || sp.velY
+            ? (Math.atan2(sp.velY ?? 0, sp.velX ?? 0) * 180) / Math.PI
+            : 0;
+
+        if (!p) {
+          p = new Projectile(
+            sp.id,
+            sp.ownerId,
+            sp.spellType,
+            sp.posX,
+            sp.posY,
+            angleDeg,
+            sp.team ?? 'none',
+          );
+          this.projectiles.push(p);
+        }
         p.x = sp.posX;
         p.y = sp.posY;
         p.velX = sp.velX ?? 0;
@@ -349,8 +370,23 @@ export class MagicDuelGame {
         p.damage = sp.damage;
         p.radius = sp.radius;
         p.lifetime = sp.lifetime;
-        return p;
-      });
+        p.facingAngle = angleDeg;
+      }
+    }
+
+    // Synchronize visual effects from authoritative server
+    if (Array.isArray(serverState.visualEffects)) {
+      const now = Date.now();
+      this.visualEffects = serverState.visualEffects
+        .map((sfx: any) => ({
+          x: sfx.x,
+          y: sfx.y,
+          type: sfx.type,
+          color: sfx.color,
+          age: Math.max(0, (now - sfx.createdAt) / 1000),
+          duration: sfx.duration,
+        }))
+        .filter((fx: any) => fx.age < fx.duration);
     }
 
     // Synchronize kill feed if provided
@@ -579,6 +615,15 @@ export class MagicDuelGame {
           p.mana -= def.manaCost;
           p.cooldowns[spellType] = def.cooldown;
 
+          // Apply GCD (0.28s) across offensive spells locally as well
+          if (spellType !== 'shield') {
+            for (const key of ['fireball', 'frost', 'lightning']) {
+              if ((p.cooldowns[key] ?? 0) < 0.28) {
+                p.cooldowns[key] = 0.28;
+              }
+            }
+          }
+
           if (spellType === 'shield') {
             p.triggerShield();
             this.audio.playShield();
@@ -644,23 +689,26 @@ export class MagicDuelGame {
 
       let destroyed = false;
 
-      // Check lifetime
-      if (proj.lifetime <= 0) {
-        destroyed = true;
-      }
+      // In multiplayer mode, the authoritative server handles projectile lifetime, boundaries, and collisions.
+      if (!this.isMultiplayer) {
+        // Check lifetime
+        if (proj.lifetime <= 0) {
+          destroyed = true;
+        }
 
-      // Check collision with arena boundaries
-      if (proj.x < 0 || proj.x > map.width || proj.y < 0 || proj.y > map.height) {
-        destroyed = true;
-      }
+        // Check collision with arena boundaries
+        if (proj.x < 0 || proj.x > map.width || proj.y < 0 || proj.y > map.height) {
+          destroyed = true;
+        }
 
-      // Check collision with obstacles
-      if (!destroyed) {
-        for (const obs of map.obstacles) {
-          if (circleIntersectsRect(proj.x, proj.y, proj.radius, obs.x, obs.y, obs.w, obs.h)) {
-            destroyed = true;
-            this.spawnExplosion(proj.x, proj.y, proj.spellType);
-            break;
+        // Check collision with obstacles
+        if (!destroyed) {
+          for (const obs of map.obstacles) {
+            if (circleIntersectsRect(proj.x, proj.y, proj.radius, obs.x, obs.y, obs.w, obs.h)) {
+              destroyed = true;
+              this.spawnExplosion(proj.x, proj.y, proj.spellType);
+              break;
+            }
           }
         }
       }
