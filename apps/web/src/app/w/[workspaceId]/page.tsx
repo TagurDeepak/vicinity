@@ -249,7 +249,7 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
             variant="secondary"
             size="sm"
             onClick={() => setGameOpen(true)}
-            title="Play Magic Duel Multiplayer Arena with floor colleagues"
+            title="Game Arcade Multiplayer PLAY with floor colleagues"
             className="border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100 font-semibold"
           >
             🎮 Game Room
@@ -342,11 +342,11 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
                   <button
                     onClick={() => setGameOpen(true)}
                     className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-gradient-to-r from-sky-500 to-indigo-600 px-3 py-1 text-xs font-bold text-white shadow-md shadow-sky-500/25 hover:from-sky-600 hover:to-indigo-700 transition animate-pulse"
-                    title="Click to enter Magic Duel Arena!"
+                    title="Click to enter Game Lounge & Arcade!"
                   >
-                    <span>🎮 Play Magic Duel</span>
+                    <span>🎮 Game Arcade</span>
                     <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide">
-                      ARENA
+                      PLAY
                     </span>
                   </button>
                 )}
@@ -435,7 +435,7 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
 
       <MagicDuelModal
         workspaceId={workspaceId}
-        zoneId="magic-duel-arena"
+        zoneId="magic-duel-PLAY"
         zoneName={currentZone && isGameZone(currentZone) ? currentZone.name : 'Game Room'}
         isOpen={gameOpen}
         onClose={() => setGameOpen(false)}
@@ -443,3 +443,5 @@ export default function WorkspacePage({ params }: { params: { workspaceId: strin
     </div>
   );
 }
+
+
