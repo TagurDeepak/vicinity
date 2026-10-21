@@ -607,9 +607,8 @@ export class MagicDuelEngine {
     const now = Date.now();
     room.visualEffects = room.visualEffects.filter((fx) => now - fx.createdAt < fx.duration * 1000);
 
-    // Update AI Bots (strictly during active match or solo practice in waiting state)
-    const humanCount = Array.from(room.players.values()).filter((p) => !p.isBot).length;
-    if (room.matchState === 'in_progress' || (room.matchState === 'waiting' && humanCount === 1)) {
+    // Update AI Bots (strictly during active match; completely idle in waiting area)
+    if (room.matchState === 'in_progress') {
       this.updateBots(room, dt);
     } else {
       for (const bot of room.players.values()) {
@@ -689,8 +688,8 @@ export class MagicDuelEngine {
       const vy = player.moveY * speed * dt;
       this.movePlayerWithCollision(room, player, vx, vy);
 
-      // Handle spell casting (during active match or during solo practice)
-      if (player.isFiring && (room.matchState === 'in_progress' || (room.matchState === 'waiting' && humanCount === 1))) {
+      // Handle spell casting (strictly during active match)
+      if (player.isFiring && room.matchState === 'in_progress') {
         this.castPlayerSpell(room, player);
       }
     }

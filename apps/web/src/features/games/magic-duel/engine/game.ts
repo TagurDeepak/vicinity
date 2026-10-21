@@ -178,15 +178,30 @@ export class MagicDuelGame {
     this.camera.resize(rw, rh);
   }
 
-  updateLocalPlayerInfo(id: string, name: string) {
+  setLocalPlayerId(id: string) {
+    if (!id) return;
+    const oldId = this.localPlayerId;
     this.localPlayerId = id;
-    this.localPlayerName = name;
     if (this.localPlayer) {
       this.localPlayer.id = id;
-      this.localPlayer.name = name;
     }
-    if (this.hostId === 'player-1') {
+    if (this.hostId === 'player-1' || this.hostId === oldId) {
       this.hostId = id;
+    }
+    // Remove any duplicate entities that had this ID or placeholder ID
+    this.players = this.players.filter(
+      (p) => p === this.localPlayer || (p.id !== id && p.id !== oldId && p.id !== 'player-1'),
+    );
+    if (!this.players.includes(this.localPlayer)) {
+      this.players.unshift(this.localPlayer);
+    }
+  }
+
+  updateLocalPlayerInfo(id: string, name: string) {
+    this.setLocalPlayerId(id);
+    this.localPlayerName = name;
+    if (this.localPlayer) {
+      this.localPlayer.name = name;
     }
   }
 
@@ -216,11 +231,17 @@ export class MagicDuelGame {
     if (Array.isArray(serverState.players)) {
       const incomingIds = new Set<string>(serverState.players.map((p: any) => p.id));
 
+      // If localPlayer still has placeholder 'player-1', auto-adopt the real user ID from snapshot
+      if (this.localPlayerId === 'player-1' || this.localPlayer.id === 'player-1') {
+        const matching = serverState.players.find((p: any) => !p.isBot);
+        if (matching) {
+          this.setLocalPlayerId(matching.id);
+          this.localPlayer.name = matching.name;
+        }
+      }
+
       for (const sp of serverState.players) {
-        const isLocal =
-          sp.id === this.localPlayerId ||
-          sp.id === this.localPlayer.id ||
-          (this.localPlayerId !== 'player-1' && sp.id === this.localPlayerId);
+        const isLocal = sp.id === this.localPlayerId || sp.id === this.localPlayer.id;
 
         if (isLocal) {
           // Update local player stats from server authoritative snapshot
@@ -256,7 +277,7 @@ export class MagicDuelGame {
           }
         } else {
           // Remote human player or bot
-          let existing = this.players.find((p) => p.id === sp.id);
+          let existing = this.players.find((p) => p.id === sp.id && p !== this.localPlayer);
           if (!existing) {
             existing = new PlayerEntity(
               sp.id,
@@ -278,6 +299,7 @@ export class MagicDuelGame {
             this.botPlayer = existing;
             this.botAI.bot = existing;
           }
+
           existing.facingAngle = sp.facingAngle;
           existing.name = sp.name;
           existing.colorIndex = sp.colorIndex;
@@ -299,10 +321,13 @@ export class MagicDuelGame {
         }
       }
 
-      // Remove players that are no longer in server room (e.g. removed bots, disconnected players)
+      // Ensure localPlayer is in this.players exactly once and remove obsolete/phantom entities
       this.players = this.players.filter(
-        (p) => p.id === this.localPlayer.id || p.id === this.localPlayerId || incomingIds.has(p.id),
+        (p) => p === this.localPlayer || (incomingIds.has(p.id) && p.id !== 'player-1'),
       );
+      if (!this.players.includes(this.localPlayer)) {
+        this.players.unshift(this.localPlayer);
+      }
     }
 
     // Synchronize authoritative projectiles
@@ -546,13 +571,8 @@ export class MagicDuelGame {
         }
       }
 
-      // Casting (during active match, offline mode, or waiting/practice area)
-      if (
-        this.input.isMouseDown &&
-        (this.matchState === 'in_progress' ||
-          !this.isMultiplayer ||
-          (this.matchState === 'waiting' && this.players.filter((pl) => !pl.isBot).length <= 1))
-      ) {
+      // Casting (strictly only during active in_progress match; completely disabled in waiting room)
+      if (this.input.isMouseDown && this.matchState === 'in_progress') {
         const spellType = this.input.activeSpell;
         const def = SPELLS[spellType] || SPELLS.fireball!;
         if ((p.cooldowns[spellType] ?? 0) <= 0 && p.mana >= def.manaCost) {
@@ -598,8 +618,8 @@ export class MagicDuelGame {
       }
     }
 
-    // 4. Update Bot AI (strictly in offline singleplayer mode)
-    if (!this.isMultiplayer && (this.matchState === 'in_progress' || this.matchState === 'waiting')) {
+    // 4. Update Bot AI (strictly in offline singleplayer mode during active in_progress match)
+    if (!this.isMultiplayer && this.matchState === 'in_progress') {
       this.botAI.update(
         dt,
         p,

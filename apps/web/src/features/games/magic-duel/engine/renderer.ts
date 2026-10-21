@@ -193,8 +193,11 @@ export class GameRenderer {
     // 4. Render Projectiles
     this.renderProjectiles(ctx, projectiles);
 
-    // 5. Render Wizards
+    // 5. Render Wizards (Deduplicate IDs defensively to guarantee zero duplicate rendering)
+    const renderedIds = new Set<string>();
     for (const player of players) {
+      if (renderedIds.has(player.id)) continue;
+      renderedIds.add(player.id);
       const isLocal = localPlayer ? player.id === localPlayer.id : !player.isBot;
       this.renderWizard(ctx, player, isLocal);
     }
@@ -532,21 +535,24 @@ export class GameRenderer {
     const botBadge = player.isBot && !player.name.includes('[BOT]') ? ' [BOT]' : '';
     const displayName = `${adminBadge}${localStar}${player.name}${botBadge}${teamBadge}`;
 
+    const textX = Math.round(player.x);
+    const textY = Math.round(player.y - 44);
+
     ctx.fillStyle = '#000000';
-    ctx.fillText(displayName, player.x + 1, player.y - 43);
+    ctx.fillText(displayName, textX + 1, textY + 1);
 
     let nameColor = isLocal ? '#38bdf8' : player.isBot ? '#f87171' : '#f8fafc';
     if (player.team === 'blue') nameColor = '#38bdf8';
     else if (player.team === 'red') nameColor = '#f87171';
 
     ctx.fillStyle = nameColor;
-    ctx.fillText(displayName, player.x, player.y - 44);
+    ctx.fillText(displayName, textX, textY);
 
-    // Mini Health Bar
+    // Mini Health Bar (pixel-aligned to prevent subpixel shimmer)
     const barW = 44;
     const barH = 5;
-    const barX = player.x - barW / 2;
-    const barY = player.y - 39;
+    const barX = Math.round(player.x - barW / 2);
+    const barY = Math.round(player.y - 39);
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
     ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);

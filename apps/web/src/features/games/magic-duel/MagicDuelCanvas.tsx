@@ -40,6 +40,10 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
   const [teamScores, setTeamScores] = useState<{ blue: number; red: number }>({ blue: 0, red: 0 });
   const [playersSummary, setPlayersSummary] = useState<PlayerSummary[]>([]);
   const [showLobbyModal, setShowLobbyModal] = useState<boolean>(true);
+  const showLobbyModalRef = useRef<boolean>(true);
+  useEffect(() => {
+    showLobbyModalRef.current = showLobbyModal;
+  }, [showLobbyModal]);
   const [selectedDuration, setSelectedDuration] = useState<number>(120);
   const [selectedMode, setSelectedMode] = useState<'ffa' | 'teams'>('ffa');
 
@@ -258,11 +262,18 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       }
     };
 
+    const onGameInit = ({ playerId }: { playerId: string }) => {
+      if (gameRef.current && playerId) {
+        gameRef.current.setLocalPlayerId(playerId);
+      }
+    };
+
     if (socket.connected) {
       onConnect();
     }
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
+    socket.on('game:init', onGameInit);
     socket.on('game:state', onGameState);
 
     // Send input at 60 Hz to server
@@ -270,15 +281,17 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       const game = gameRef.current;
       if (!game || !socket.connected) return;
 
+      const inLobby = showLobbyModalRef.current;
+      const isMatchRunning = game.matchState === 'in_progress';
+      const move = inLobby ? { x: 0, y: 0 } : game.input.getMovementVector();
       const p = game.localPlayer;
-      const move = game.input.getMovementVector();
       const input = {
         moveX: move.x,
         moveY: move.y,
         facingAngle: p.facingAngle,
         activeSpell: game.input.activeSpell as any,
-        isFiring: game.input.isMouseDown,
-        isDashing: game.input.consumeDash(),
+        isFiring: inLobby || !isMatchRunning ? false : game.input.isMouseDown,
+        isDashing: inLobby || !isMatchRunning ? false : game.input.consumeDash(),
       };
       socket.emit('game:input', { workspaceId, zoneId, input });
     }, 16);
@@ -288,6 +301,7 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
       isConnectedRef.current = false;
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
+      socket.off('game:init', onGameInit);
       socket.off('game:state', onGameState);
       socket.emit('game:leave', { workspaceId, zoneId });
     };
