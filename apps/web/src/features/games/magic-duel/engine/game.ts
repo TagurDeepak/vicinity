@@ -88,6 +88,7 @@ export class MagicDuelGame {
   lastFrameTime: number;
   isRunning: boolean;
   isMultiplayer: boolean = false;
+  hasReceivedInitialServerPosition: boolean = false;
   nextProjId: number;
 
   onKillFeedChange: ((feed: KillFeedItem[]) => void) | null;
@@ -133,8 +134,8 @@ export class MagicDuelGame {
 
     // Initialize with safe fallback entities so camera and world NEVER crash
     const map = ARENA_MAPS[this.currentMapId] || ARENA_MAPS.catacombs!;
-    const spawnP1 = map.spawnPoints[0] || { x: 380, y: 380 };
-    const spawnP2 = map.spawnPoints[1] || { x: 1620, y: 1020 };
+    const spawnP1 = map.spawnPoints[0] || { x: 200, y: 200 };
+    const spawnP2 = map.spawnPoints[1] || { x: 1800, y: 200 };
 
     this.localPlayer = new PlayerEntity(
       this.localPlayerId,
@@ -231,12 +232,12 @@ export class MagicDuelGame {
     if (Array.isArray(serverState.players)) {
       const incomingIds = new Set<string>(serverState.players.map((p: any) => p.id));
 
-      // If localPlayer still has placeholder 'player-1', auto-adopt the real user ID from snapshot
+      // If localPlayer still has placeholder 'player-1', auto-adopt the real user ID only if 1 human player
       if (this.localPlayerId === 'player-1' || this.localPlayer.id === 'player-1') {
-        const matching = serverState.players.find((p: any) => !p.isBot);
-        if (matching) {
-          this.setLocalPlayerId(matching.id);
-          this.localPlayer.name = matching.name;
+        const nonBots = serverState.players.filter((p: any) => !p.isBot);
+        if (nonBots.length === 1 && nonBots[0]) {
+          this.setLocalPlayerId(nonBots[0].id);
+          this.localPlayer.name = nonBots[0].name;
         }
       }
 
@@ -268,19 +269,30 @@ export class MagicDuelGame {
           }
 
           // Authoritative position reconciliation:
-          // When the player is actively moving with keyboard, trust client prediction to avoid latency rubberbanding.
-          // Only snap if distance is large (> 200px) or player died / respawned.
           const dx = sp.posX - this.localPlayer.x;
           const dy = sp.posY - this.localPlayer.y;
           const distSq = dx * dx + dy * dy;
           const move = this.input.getMovementVector();
           const isActivelyMoving = move.x !== 0 || move.y !== 0;
 
-          if (!this.localPlayer.isAlive || distSq > 200 * 200) {
+          if (!this.hasReceivedInitialServerPosition || !this.localPlayer.isAlive) {
+            // First server state or respawn: cleanly align with server coordinates
             this.localPlayer.x = sp.posX;
             this.localPlayer.y = sp.posY;
-          } else if (!isActivelyMoving && distSq > 4) {
-            // When stationary, gently ease to exact server coordinates
+            this.hasReceivedInitialServerPosition = true;
+          } else if (distSq > 450 * 450) {
+            // Server teleport or match restart
+            this.localPlayer.x = sp.posX;
+            this.localPlayer.y = sp.posY;
+          } else if (isActivelyMoving) {
+            // When actively moving, trust client prediction for immediate 0ms response.
+            // Gently bleed off any small drift (>6px) without sudden rubberband snaps.
+            if (distSq > 36) {
+              this.localPlayer.x += dx * 0.05;
+              this.localPlayer.y += dy * 0.05;
+            }
+          } else if (distSq > 1) {
+            // When stationary, smoothly glide to exact authoritative coordinates in 2-3 frames
             this.localPlayer.x += dx * 0.25;
             this.localPlayer.y += dy * 0.25;
           }
@@ -406,9 +418,10 @@ export class MagicDuelGame {
   }
 
   initGame() {
+    this.hasReceivedInitialServerPosition = false;
     const map = ARENA_MAPS[this.currentMapId] || ARENA_MAPS.catacombs!;
-    const spawnP1 = map.spawnPoints[0] || { x: 380, y: 380 };
-    const spawnP2 = map.spawnPoints[1] || { x: 1620, y: 1020 };
+    const spawnP1 = map.spawnPoints[0] || { x: 200, y: 200 };
+    const spawnP2 = map.spawnPoints[1] || { x: 1800, y: 200 };
 
     const playerId = this.localPlayerId || this.localPlayer?.id || 'player-1';
     const playerName = this.localPlayerName || this.localPlayer?.name || 'Wizard (You)';
@@ -452,6 +465,7 @@ export class MagicDuelGame {
   }
 
   startMatch(duration = 120, mode?: 'ffa' | 'teams') {
+    this.hasReceivedInitialServerPosition = false;
     this.matchDuration = duration;
     this.matchTimeRemaining = duration;
     if (mode) this.gameMode = mode;
@@ -516,6 +530,7 @@ export class MagicDuelGame {
   }
 
   rematch() {
+    this.hasReceivedInitialServerPosition = false;
     this.matchState = 'waiting';
     this.matchTimeRemaining = this.matchDuration;
     this.teamScores = { blue: 0, red: 0 };

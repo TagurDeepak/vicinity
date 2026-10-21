@@ -1,6 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 import {
   SPELL_CONFIGS,
+  ARENA_MAPS,
   type ArenaMapData,
   type ClientToServerEvents,
   type GameClientInput,
@@ -15,111 +16,7 @@ import {
 } from '@vicinity/shared';
 import { logger } from '../lib/logger';
 
-// Default Arena Maps
-export const ARENA_MAPS: Record<GameMapTheme, ArenaMapData> = {
-  catacombs: {
-    id: 'catacombs',
-    name: 'Catacombs',
-    subtitle: 'Dungeon Crypt',
-    description: 'Stone dungeon with mossy pillars, perimeter walls, and torchlit halls.',
-    width: 2000,
-    height: 1400,
-    floorTexture: '/magic-duel/textures/stone_floor.png',
-    wallTexture: '/magic-duel/textures/stone_wall.png',
-    obstacles: [
-      // 4 central stone pillars
-      { x: 600, y: 400, w: 120, h: 120 },
-      { x: 1280, y: 400, w: 120, h: 120 },
-      { x: 600, y: 880, w: 120, h: 120 },
-      { x: 1280, y: 880, w: 120, h: 120 },
-      // Central sarcophagus altar
-      { x: 920, y: 640, w: 160, h: 120 },
-      // Side barrier walls
-      { x: 280, y: 550, w: 100, h: 300 },
-      { x: 1620, y: 550, w: 100, h: 300 },
-    ],
-    spawnPoints: [
-      { x: 200, y: 200 },
-      { x: 1800, y: 200 },
-      { x: 200, y: 1200 },
-      { x: 1800, y: 1200 },
-      { x: 1000, y: 220 },
-      { x: 1000, y: 1180 },
-    ],
-    torchPositions: [
-      { x: 600, y: 390 },
-      { x: 1400, y: 390 },
-      { x: 600, y: 1010 },
-      { x: 1400, y: 1010 },
-      { x: 1000, y: 630 },
-      { x: 1000, y: 770 },
-    ],
-  },
-  'forest-ruins': {
-    id: 'forest-ruins',
-    name: 'Forest Ruins',
-    subtitle: 'Overgrown Sanctuary',
-    description: 'Sprawling temple with ancient monoliths, overgrown flora, and ruins.',
-    width: 2200,
-    height: 1500,
-    floorTexture: '/magic-duel/textures/forest_floor.png',
-    wallTexture: '/magic-duel/textures/stone_wall.png',
-    obstacles: [
-      { x: 500, y: 350, w: 160, h: 160 },
-      { x: 1540, y: 350, w: 160, h: 160 },
-      { x: 500, y: 990, w: 160, h: 160 },
-      { x: 1540, y: 990, w: 160, h: 160 },
-      { x: 1020, y: 670, w: 160, h: 160 },
-      { x: 300, y: 650, w: 140, h: 200 },
-      { x: 1760, y: 650, w: 140, h: 200 },
-    ],
-    spawnPoints: [
-      { x: 250, y: 250 },
-      { x: 1950, y: 250 },
-      { x: 250, y: 1250 },
-      { x: 1950, y: 1250 },
-      { x: 1100, y: 200 },
-      { x: 1100, y: 1300 },
-    ],
-    torchPositions: [
-      { x: 500, y: 340 },
-      { x: 1700, y: 340 },
-      { x: 500, y: 1160 },
-      { x: 1700, y: 1160 },
-    ],
-  },
-  'lava-citadel': {
-    id: 'lava-citadel',
-    name: 'Lava Citadel',
-    subtitle: 'Volcanic Forge',
-    description: 'Hazardous obsidian arena forged amidst bubbling lava trenches.',
-    width: 2000,
-    height: 1400,
-    floorTexture: '/magic-duel/textures/lava_floor.png',
-    wallTexture: '/magic-duel/textures/stone_wall.png',
-    obstacles: [
-      { x: 450, y: 400, w: 180, h: 140 },
-      { x: 1370, y: 400, w: 180, h: 140 },
-      { x: 450, y: 860, w: 180, h: 140 },
-      { x: 1370, y: 860, w: 180, h: 140 },
-      { x: 910, y: 610, w: 180, h: 180 },
-    ],
-    spawnPoints: [
-      { x: 220, y: 220 },
-      { x: 1780, y: 220 },
-      { x: 220, y: 1180 },
-      { x: 1780, y: 1180 },
-      { x: 1000, y: 200 },
-      { x: 1000, y: 1200 },
-    ],
-    torchPositions: [
-      { x: 450, y: 390 },
-      { x: 1550, y: 390 },
-      { x: 450, y: 1010 },
-      { x: 1550, y: 1010 },
-    ],
-  },
-};
+export { ARENA_MAPS };
 
 interface InternalPlayer extends GamePlayerState {
   socket?: Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -178,6 +75,7 @@ export class MagicDuelEngine {
       winnerId: string | null;
       nextProjectileId: number;
       timer: NodeJS.Timeout | null;
+      lastTickTime?: number;
     }
   >();
 
@@ -231,64 +129,74 @@ export class MagicDuelEngine {
       room.hostId = userId;
     }
 
-    // Pick spawn point
-    const spawnIdx = room.players.size % room.map.spawnPoints.length;
-    const spawn = room.map.spawnPoints[spawnIdx] || { x: 400, y: 400 };
-
-    const playerColors = [0, 1, 2, 3];
-    const colorIndex = playerColors[room.players.size % playerColors.length];
-
-    const team = room.gameMode === 'teams' ? (room.players.size % 2 === 0 ? 'blue' : 'red') : 'none';
-
     const isHost = room.hostId === userId || activeHumansBefore.length === 0;
     if (isHost) {
       room.hostId = userId;
     }
 
-    const player: InternalPlayer = {
-      id: userId,
-      name: displayName || 'Wizard',
-      colorIndex,
-      posX: spawn.x,
-      posY: spawn.y,
-      facingAngle: 0,
-      health: 100,
-      maxHealth: 100,
-      mana: 80,
-      maxMana: 100,
-      kills: 0,
-      deaths: 0,
-      score: 0,
-      damageDealt: 0,
-      team,
-      isAdmin: isHost,
-      hasShield: true,
-      shieldDuration: 2.0, // Free 2s shield on spawn
-      isAlive: true,
-      activeSpell: 'fireball',
-      cooldowns: {
-        fireball: 0,
-        frost: 0,
-        lightning: 0,
-        shield: 0,
-        dash: 0,
-      },
-      isBot: false,
-      isDashing: false,
-      dashTimer: 0,
-      hitFlashTimer: 0,
-      socket,
-      moveX: 0,
-      moveY: 0,
-      isFiring: false,
-      slowTimer: 0,
-      respawnTimer: 0,
-      botNextActionTime: 0,
-      botTargetId: null,
-    };
+    // Check if player is already present in this room
+    let player = room.players.get(userId);
+    if (player) {
+      // Re-connecting or duplicate join event: update socket & name, but preserve position!
+      player.socket = socket;
+      player.name = displayName || player.name;
+      player.isAdmin = isHost;
+      logger.info({ key, userId, displayName, isHost: player.isAdmin }, 'player re-joined Magic Duel (preserved state)');
+    } else {
+      // Pick spawn point for new player
+      const spawnIdx = room.players.size % room.map.spawnPoints.length;
+      const spawn = room.map.spawnPoints[spawnIdx] || { x: 400, y: 400 };
 
-    room.players.set(userId, player);
-    logger.info({ key, userId, displayName, isHost: player.isAdmin }, 'player joined Magic Duel');
+      const playerColors = [0, 1, 2, 3];
+      const colorIndex = playerColors[room.players.size % playerColors.length];
+
+      const team = room.gameMode === 'teams' ? (room.players.size % 2 === 0 ? 'blue' : 'red') : 'none';
+
+      player = {
+        id: userId,
+        name: displayName || 'Wizard',
+        colorIndex,
+        posX: spawn.x,
+        posY: spawn.y,
+        facingAngle: 0,
+        health: 100,
+        maxHealth: 100,
+        mana: 80,
+        maxMana: 100,
+        kills: 0,
+        deaths: 0,
+        score: 0,
+        damageDealt: 0,
+        team,
+        isAdmin: isHost,
+        hasShield: true,
+        shieldDuration: 2.0, // Free 2s shield on spawn
+        isAlive: true,
+        activeSpell: 'fireball',
+        cooldowns: {
+          fireball: 0,
+          frost: 0,
+          lightning: 0,
+          shield: 0,
+          dash: 0,
+        },
+        isBot: false,
+        isDashing: false,
+        dashTimer: 0,
+        hitFlashTimer: 0,
+        socket,
+        moveX: 0,
+        moveY: 0,
+        isFiring: false,
+        slowTimer: 0,
+        respawnTimer: 0,
+        botNextActionTime: 0,
+        botTargetId: null,
+      };
+
+      room.players.set(userId, player);
+      logger.info({ key, userId, displayName, isHost: player.isAdmin }, 'player joined Magic Duel');
+    }
 
     // If only 1 human player and no bot, spawn a Sparring Bot!
     this.ensureBotPopulation(room);
@@ -408,6 +316,9 @@ export class MagicDuelEngine {
       const pt = room.map.spawnPoints[i % room.map.spawnPoints.length] || { x: 300, y: 300 };
       player.posX = pt.x;
       player.posY = pt.y;
+      player.moveX = 0;
+      player.moveY = 0;
+      player.isFiring = false;
       player.health = 100;
       player.mana = 80;
       player.isAlive = true;
@@ -608,7 +519,11 @@ export class MagicDuelEngine {
     const room = this.rooms.get(key);
     if (!room) return;
 
-    const dt = 0.0166; // 60 FPS delta
+    // Measure real elapsed time between ticks (capped between 5ms and 50ms) to ensure physics matches client real-time
+    const nowPerf = performance.now();
+    const lastTick = room.lastTickTime ?? nowPerf;
+    const dt = room.lastTickTime ? Math.min(0.05, Math.max(0.005, (nowPerf - lastTick) / 1000)) : 0.0166;
+    room.lastTickTime = nowPerf;
     room.matchTimer += dt;
 
     // Countdown match timer
@@ -620,8 +535,8 @@ export class MagicDuelEngine {
     }
 
     // Clean old visual effects
-    const now = Date.now();
-    room.visualEffects = room.visualEffects.filter((fx) => now - fx.createdAt < fx.duration * 1000);
+    const nowMs = Date.now();
+    room.visualEffects = room.visualEffects.filter((fx) => nowMs - fx.createdAt < fx.duration * 1000);
 
     // Update AI Bots (strictly during active match; completely idle in waiting area)
     if (room.matchState === 'in_progress') {
