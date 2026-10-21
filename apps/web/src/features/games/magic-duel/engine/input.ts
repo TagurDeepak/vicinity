@@ -122,6 +122,7 @@ export class InputManager {
       // Prevent browser default actions (such as scrolling on S / ArrowDown / Space)
       if (matched) {
         e.preventDefault();
+        e.stopPropagation();
       }
     };
 

@@ -12,6 +12,7 @@ interface SkyCampus3DProps {
   onZoneLeave?: (zoneId?: string) => void;
   onZoneChange?: (zone: Zone | null) => void;
   onStartDm?: (userId: string, displayName: string) => void;
+  isGameOpen?: boolean;
 }
 
 export function SkyCampus3D({
@@ -21,10 +22,20 @@ export function SkyCampus3D({
   onZoneLeave,
   onZoneChange,
   onStartDm,
+  isGameOpen = false,
 }: SkyCampus3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const currentZoneIdRef = useRef<string | null>(null);
+  const isGameOpenRef = useRef(isGameOpen);
+
+  useEffect(() => {
+    isGameOpenRef.current = isGameOpen;
+    if (isGameOpen) {
+      keysRef.current = { w: false, s: false, a: false, d: false };
+      avatarPos.current.isMoving = false;
+    }
+  }, [isGameOpen]);
 
   const users = usePresenceStore((s) => s.users);
   const myId = usePresenceStore((s) => s.me);
@@ -275,6 +286,7 @@ export function SkyCampus3D({
 
     // Keyboard movement
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isGameOpenRef.current) return;
       if (!e.key) return;
       const k = e.key.toLowerCase();
       if (k === 'w' || k === 'arrowup') keysRef.current.w = true;
@@ -283,6 +295,10 @@ export function SkyCampus3D({
       if (k === 'd' || k === 'arrowright') keysRef.current.d = true;
     };
     const onKeyUp = (e: KeyboardEvent) => {
+      if (isGameOpenRef.current) {
+        keysRef.current = { w: false, s: false, a: false, d: false };
+        return;
+      }
       if (!e.key) return;
       const k = e.key.toLowerCase();
       if (k === 'w' || k === 'arrowup') keysRef.current.w = false;
@@ -298,7 +314,7 @@ export function SkyCampus3D({
     const mouse = new THREE.Vector2();
 
     const onPointerClick = (e: MouseEvent) => {
-      if (!containerRef.current) return;
+      if (isGameOpenRef.current || !containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / containerRef.current.clientWidth) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / containerRef.current.clientHeight) * 2 + 1;
@@ -358,6 +374,10 @@ export function SkyCampus3D({
       lastTime = time;
 
       const a = avatarPos.current;
+      if (isGameOpenRef.current) {
+        keysRef.current = { w: false, s: false, a: false, d: false };
+        a.isMoving = false;
+      }
       const keys = keysRef.current;
       let mx = 0;
       let mz = 0;
@@ -417,7 +437,7 @@ export function SkyCampus3D({
       }
 
       // Throttled onMove broadcast (60ms)
-      if (time - lastMoveSentRef.current > 60) {
+      if (!isGameOpenRef.current && time - lastMoveSentRef.current > 60) {
         lastMoveSentRef.current = time;
         // Map 3D coords (-45..45) to 2D floor units (0..1600, 0..1080)
         const mappedX = ((a.x + 45) / 90) * 1600;

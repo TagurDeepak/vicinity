@@ -243,12 +243,16 @@ export class MagicDuelGame {
             this.localPlayer.hitFlashTimer = sp.hitFlashTimer;
           }
 
-          // If local player died or distance from authoritative position is large (> 250px), snap position
-          const dx = this.localPlayer.x - sp.posX;
-          const dy = this.localPlayer.y - sp.posY;
-          if (!this.localPlayer.isAlive || dx * dx + dy * dy > 250 * 250) {
+          // If local player died or distance from authoritative position is large (> 200px), snap position
+          const dx = sp.posX - this.localPlayer.x;
+          const dy = sp.posY - this.localPlayer.y;
+          const distSq = dx * dx + dy * dy;
+          if (!this.localPlayer.isAlive || distSq > 200 * 200) {
             this.localPlayer.x = sp.posX;
             this.localPlayer.y = sp.posY;
+          } else if (distSq > 36 * 36) {
+            this.localPlayer.x += dx * 0.15;
+            this.localPlayer.y += dy * 0.15;
           }
         } else {
           // Remote human player or bot
@@ -262,18 +266,17 @@ export class MagicDuelGame {
               sp.posY,
               sp.isBot,
             );
+            existing.targetX = sp.posX;
+            existing.targetY = sp.posY;
             this.players.push(existing);
+          } else {
+            existing.targetX = sp.posX;
+            existing.targetY = sp.posY;
           }
 
-          // Smooth interpolation towards server position
-          const dx = sp.posX - existing.x;
-          const dy = sp.posY - existing.y;
-          if (Math.abs(dx) > 180 || Math.abs(dy) > 180) {
-            existing.x = sp.posX;
-            existing.y = sp.posY;
-          } else {
-            existing.x += dx * 0.45;
-            existing.y += dy * 0.45;
+          if (sp.isBot) {
+            this.botPlayer = existing;
+            this.botAI.bot = existing;
           }
           existing.facingAngle = sp.facingAngle;
           existing.name = sp.name;
@@ -543,8 +546,13 @@ export class MagicDuelGame {
         }
       }
 
-      // Casting (strictly only during active match; locked in waiting area)
-      if (this.input.isMouseDown && this.matchState === 'in_progress') {
+      // Casting (during active match, offline mode, or waiting/practice area)
+      if (
+        this.input.isMouseDown &&
+        (this.matchState === 'in_progress' ||
+          !this.isMultiplayer ||
+          (this.matchState === 'waiting' && this.players.filter((pl) => !pl.isBot).length <= 1))
+      ) {
         const spellType = this.input.activeSpell;
         const def = SPELLS[spellType] || SPELLS.fireball!;
         if ((p.cooldowns[spellType] ?? 0) <= 0 && p.mana >= def.manaCost) {
@@ -574,12 +582,24 @@ export class MagicDuelGame {
     p.update(dt, map.obstacles, map.width, map.height);
     for (const pl of this.players) {
       if (pl !== p) {
+        if (typeof pl.targetX === 'number' && typeof pl.targetY === 'number') {
+          const dx = pl.targetX - pl.x;
+          const dy = pl.targetY - pl.y;
+          if (Math.abs(dx) > 180 || Math.abs(dy) > 180) {
+            pl.x = pl.targetX;
+            pl.y = pl.targetY;
+          } else {
+            const factor = 1 - Math.exp(-18 * dt);
+            pl.x += dx * factor;
+            pl.y += dy * factor;
+          }
+        }
         pl.update(dt, map.obstacles, map.width, map.height);
       }
     }
 
     // 4. Update Bot AI (strictly in offline singleplayer mode)
-    if (!this.isMultiplayer && this.matchState === 'in_progress') {
+    if (!this.isMultiplayer && (this.matchState === 'in_progress' || this.matchState === 'waiting')) {
       this.botAI.update(
         dt,
         p,

@@ -130,6 +130,8 @@ interface InternalPlayer extends GamePlayerState {
   respawnTimer: number;
   botNextActionTime: number;
   botTargetId: string | null;
+  botStrafeDir?: number;
+  botStrafeTimer?: number;
 }
 
 export function gameRoomKey(workspaceId: string, zoneId: string): string {
@@ -605,8 +607,9 @@ export class MagicDuelEngine {
     const now = Date.now();
     room.visualEffects = room.visualEffects.filter((fx) => now - fx.createdAt < fx.duration * 1000);
 
-    // Update AI Bots (strictly during active match; idle during waiting or ended)
-    if (room.matchState === 'in_progress') {
+    // Update AI Bots (strictly during active match or solo practice in waiting state)
+    const humanCount = Array.from(room.players.values()).filter((p) => !p.isBot).length;
+    if (room.matchState === 'in_progress' || (room.matchState === 'waiting' && humanCount === 1)) {
       this.updateBots(room, dt);
     } else {
       for (const bot of room.players.values()) {
@@ -674,7 +677,7 @@ export class MagicDuelEngine {
       }
 
       // Calculate speed
-      let speed = 240; // Base speed px/s
+      let speed = 260; // Base speed px/s, matches client GAME_CONFIG.PLAYER_SPEED
       if (player.isDashing) {
         speed = 720;
       } else if (player.slowTimer > 0) {
@@ -686,8 +689,8 @@ export class MagicDuelEngine {
       const vy = player.moveY * speed * dt;
       this.movePlayerWithCollision(room, player, vx, vy);
 
-      // Handle spell casting (strictly during active match)
-      if (player.isFiring && room.matchState === 'in_progress') {
+      // Handle spell casting (during active match or during solo practice)
+      if (player.isFiring && (room.matchState === 'in_progress' || (room.matchState === 'waiting' && humanCount === 1))) {
         this.castPlayerSpell(room, player);
       }
     }
@@ -932,40 +935,46 @@ export class MagicDuelEngine {
     vx: number,
     vy: number,
   ): void {
-    const radius = 20;
+    const radius = 24; // Match GAME_CONFIG.PLAYER_RADIUS
     let nextX = player.posX + vx;
-    let nextY = player.posY + vy;
+    let nextY = player.posY;
 
-    // Bounds clamp
-    nextX = Math.max(radius + 30, Math.min(room.map.width - radius - 30, nextX));
-    nextY = Math.max(radius + 30, Math.min(room.map.height - radius - 30, nextY));
-
-    // Obstacle collision & sliding
+    // Check X collision first
     for (const obs of room.map.obstacles) {
-      // Expanded bounding box with player radius
       const minX = obs.x - radius;
       const maxX = obs.x + obs.w + radius;
       const minY = obs.y - radius;
       const maxY = obs.y + obs.h + radius;
 
-      if (nextX >= minX && nextX <= maxX && nextY >= minY && nextY <= maxY) {
-        // Resolve axis separately for smooth wall sliding
-        if (player.posX < minX || player.posX > maxX) {
-          nextX = player.posX;
-        }
-        if (player.posY < minY || player.posY > maxY) {
-          nextY = player.posY;
-        }
+      if (nextX > minX && nextX < maxX && nextY > minY && nextY < maxY) {
+        nextX = player.posX;
+        break;
       }
     }
 
-    player.posX = nextX;
-    player.posY = nextY;
+    // Then check Y collision
+    let testY = player.posY + vy;
+    for (const obs of room.map.obstacles) {
+      const minX = obs.x - radius;
+      const maxX = obs.x + obs.w + radius;
+      const minY = obs.y - radius;
+      const maxY = obs.y + obs.h + radius;
+
+      if (nextX > minX && nextX < maxX && testY > minY && testY < maxY) {
+        testY = player.posY;
+        break;
+      }
+    }
+    nextY = testY;
+
+    // Bounds clamp
+    player.posX = Math.max(radius + 30, Math.min(room.map.width - radius - 30, nextX));
+    player.posY = Math.max(radius + 30, Math.min(room.map.height - radius - 30, nextY));
   }
 
   private updateBots(
     room: ReturnType<typeof this.rooms.get> extends infer T ? NonNullable<T> : never,
-    _dt: number,
+    dt: number,
   ): void {
     const now = Date.now();
 
@@ -993,40 +1002,84 @@ export class MagicDuelEngine {
         continue;
       }
 
-      // Aim at opponent with small predictive leading
+      // Aim at opponent with slight predictive lead
       const dx = target.posX - bot.posX;
       const dy = target.posY - bot.posY;
       const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
       bot.facingAngle = (angle + 360) % 360;
 
-      // Movement logic: maintain distance of ~280px
-      if (nearestDist > 320) {
-        bot.moveX = dx / nearestDist;
-        bot.moveY = dy / nearestDist;
-      } else if (nearestDist < 160) {
-        bot.moveX = -dx / nearestDist;
-        bot.moveY = -dy / nearestDist;
+      // Defensive dodge against incoming enemy projectiles
+      let dodgeX = 0;
+      let dodgeY = 0;
+      let underThreat = false;
+      for (const proj of room.projectiles) {
+        if (proj.ownerId === bot.id) continue;
+        const pdx = bot.posX - proj.posX;
+        const pdy = bot.posY - proj.posY;
+        const pdist = Math.hypot(pdx, pdy);
+        if (pdist < 180) {
+          const dot = proj.velX * pdx + proj.velY * pdy;
+          if (dot > 0) {
+            underThreat = true;
+            const vMag = Math.hypot(proj.velX, proj.velY) || 1;
+            dodgeX += -proj.velY / vMag;
+            dodgeY += proj.velX / vMag;
+          }
+        }
+      }
+
+      // If under threat, trigger dash if available
+      if (underThreat && bot.cooldowns.dash <= 0 && bot.mana >= SPELL_CONFIGS.dash.manaCost && Math.random() < 0.25) {
+        bot.mana -= SPELL_CONFIGS.dash.manaCost;
+        bot.cooldowns.dash = SPELL_CONFIGS.dash.cooldown;
+        bot.isDashing = true;
+        bot.dashTimer = 0.22;
+      }
+
+      // Smooth strafing & spacing
+      if (typeof bot.botStrafeDir !== 'number') bot.botStrafeDir = 1;
+      if (typeof bot.botStrafeTimer !== 'number') bot.botStrafeTimer = 2.0;
+      bot.botStrafeTimer -= dt;
+      if (bot.botStrafeTimer <= 0) {
+        bot.botStrafeDir *= -1;
+        bot.botStrafeTimer = 1.5 + Math.random() * 2.0;
+      }
+
+      if (underThreat) {
+        const dMag = Math.hypot(dodgeX, dodgeY) || 1;
+        bot.moveX = dodgeX / dMag;
+        bot.moveY = dodgeY / dMag;
       } else {
-        // Strafe sideways
-        bot.moveX = -dy / nearestDist;
-        bot.moveY = dx / nearestDist;
+        const idealDist = 380;
+        const distError = nearestDist - idealDist;
+        const safeDist = Math.max(nearestDist, 1);
+        const radialX = (dx / safeDist) * Math.sign(distError);
+        const radialY = (dy / safeDist) * Math.sign(distError);
+        const tangX = (-dy / safeDist) * bot.botStrafeDir;
+        const tangY = (dx / safeDist) * bot.botStrafeDir;
+
+        const mx = radialX * 0.45 + tangX * 0.8;
+        const my = radialY * 0.45 + tangY * 0.8;
+        const mMag = Math.hypot(mx, my) || 1;
+        bot.moveX = mx / mMag;
+        bot.moveY = my / mMag;
       }
 
       // Bot spell tactics
       if (now > bot.botNextActionTime) {
-        bot.botNextActionTime = now + 400 + Math.random() * 600;
+        bot.botNextActionTime = now + 450 + Math.random() * 500;
 
         // If high mana and low health, try shield
-        if (bot.health < 40 && bot.cooldowns.shield <= 0 && bot.mana >= 20) {
+        if (bot.health < 40 && bot.cooldowns.shield <= 0 && bot.mana >= SPELL_CONFIGS.shield.manaCost && Math.random() < 0.6) {
           bot.activeSpell = 'shield';
           bot.isFiring = true;
-        } else if (nearestDist > 400 && bot.cooldowns.lightning <= 0 && bot.mana >= 25) {
+        } else if (nearestDist > 380 && bot.cooldowns.lightning <= 0 && bot.mana >= SPELL_CONFIGS.lightning.manaCost && Math.random() < 0.5) {
           bot.activeSpell = 'lightning';
           bot.isFiring = true;
-        } else if (target.slowTimer <= 0 && bot.cooldowns.frost <= 0 && bot.mana >= 15) {
+        } else if (target.slowTimer <= 0 && bot.cooldowns.frost <= 0 && bot.mana >= SPELL_CONFIGS.frost.manaCost && Math.random() < 0.55) {
           bot.activeSpell = 'frost';
           bot.isFiring = true;
-        } else {
+        } else if (bot.cooldowns.fireball <= 0 && bot.mana >= SPELL_CONFIGS.fireball.manaCost) {
           bot.activeSpell = 'fireball';
           bot.isFiring = true;
         }

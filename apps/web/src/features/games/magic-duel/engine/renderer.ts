@@ -529,7 +529,7 @@ export class GameRenderer {
     const teamBadge = player.team === 'blue' ? ' [BLUE]' : player.team === 'red' ? ' [RED]' : '';
     const adminBadge = player.isAdmin ? '👑 ' : '';
     const localStar = isLocal ? '⭐ ' : '';
-    const botBadge = player.isBot ? ' [BOT]' : '';
+    const botBadge = player.isBot && !player.name.includes('[BOT]') ? ' [BOT]' : '';
     const displayName = `${adminBadge}${localStar}${player.name}${botBadge}${teamBadge}`;
 
     ctx.fillStyle = '#000000';

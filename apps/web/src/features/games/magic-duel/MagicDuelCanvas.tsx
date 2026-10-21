@@ -214,37 +214,45 @@ export function MagicDuelCanvas({ workspaceId, zoneId, onClose }: MagicDuelCanva
         }
       }
       if (typeof state.matchDuration === 'number') {
-        setMatchDuration(state.matchDuration);
-        setSelectedDuration(state.matchDuration);
+        setMatchDuration((prev) => (prev !== state.matchDuration ? state.matchDuration : prev));
+        setSelectedDuration((prev) => (prev !== state.matchDuration ? state.matchDuration : prev));
       }
       if (state.gameMode) {
         setGameMode((prev) => (prev !== state.gameMode ? state.gameMode : prev));
-        setSelectedMode(state.gameMode);
+        setSelectedMode((prev) => (prev !== state.gameMode ? state.gameMode : prev));
       }
       if (state.hostId) {
-        setHostId(state.hostId);
-        setIsHost(state.hostId === user?.id);
+        setHostId((prev) => (prev !== state.hostId ? state.hostId : prev));
+        const isUserHost = state.hostId === user?.id;
+        setIsHost((prev) => (prev !== isUserHost ? isUserHost : prev));
       }
       if (state.teamScores) {
-        setTeamScores(state.teamScores);
+        setTeamScores((prev) => {
+          if (prev.blue === state.teamScores.blue && prev.red === state.teamScores.red) {
+            return prev;
+          }
+          return state.teamScores;
+        });
       }
-      if (state.players) {
-        const nextSummary: PlayerSummary[] = state.players.map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          isBot: p.isBot,
-          colorIndex: p.colorIndex,
-          team: p.team || 'none',
-          isAdmin: p.isAdmin || false,
-          score: p.score,
-          kills: p.kills,
-          deaths: p.deaths,
-          damageDealt: p.damageDealt || 0,
-          health: p.health,
-        }));
-        const summaryJson = JSON.stringify(nextSummary);
-        if (summaryJson !== lastSummaryJsonRef.current) {
-          lastSummaryJsonRef.current = summaryJson;
+      if (Array.isArray(state.players)) {
+        const simplifiedRoster = state.players
+          .map((p: any) => `${p.id}:${p.name}:${p.team}:${p.score}:${p.kills}:${p.deaths}:${p.isAdmin}:${p.isBot}`)
+          .join('|');
+        if (simplifiedRoster !== lastSummaryJsonRef.current) {
+          lastSummaryJsonRef.current = simplifiedRoster;
+          const nextSummary: PlayerSummary[] = state.players.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            isBot: p.isBot,
+            colorIndex: p.colorIndex,
+            team: p.team || 'none',
+            isAdmin: p.isAdmin || false,
+            score: p.score,
+            kills: p.kills,
+            deaths: p.deaths,
+            damageDealt: p.damageDealt || 0,
+            health: p.health,
+          }));
           setPlayersSummary(nextSummary);
         }
       }

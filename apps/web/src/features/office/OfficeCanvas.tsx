@@ -755,6 +755,7 @@ export function OfficeCanvas({
           onZoneLeave={onZoneLeave}
           onZoneChange={onZoneChange}
           onStartDm={onStartDm}
+          isGameOpen={isGameOpen}
         />
 
         {/* Floating View Switcher HUD */}

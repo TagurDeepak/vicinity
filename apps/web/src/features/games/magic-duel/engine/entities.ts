@@ -48,6 +48,8 @@ export class PlayerEntity {
 
   x: number;
   y: number;
+  targetX: number;
+  targetY: number;
   facingAngle: number;
 
   health: number;
@@ -97,6 +99,8 @@ export class PlayerEntity {
 
     this.x = spawnX;
     this.y = spawnY;
+    this.targetX = spawnX;
+    this.targetY = spawnY;
     this.facingAngle = 0;
 
     this.health = GAME_CONFIG.MAX_HEALTH;
