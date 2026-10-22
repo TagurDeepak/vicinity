@@ -274,7 +274,7 @@ export function registerGateway(io: VicinityServer, proximity: ProximityEngine):
       scribble.guess(workspaceId, zoneId, user.id, text);
     });
 
-    socket.on('disconnect', async () => {
+    const handleUserLeave = async () => {
       if (activeGameRoom) {
         magicDuel.leaveGame(activeGameRoom.workspaceId, activeGameRoom.zoneId, user.id);
         activeGameRoom = null;
@@ -288,9 +288,18 @@ export function registerGateway(io: VicinityServer, proximity: ProximityEngine):
         const current = await presence.getPresence(workspaceId, user.id);
         const prevZoneId = current?.zoneId ?? null;
         await presence.removePresence(workspaceId, user.id);
-        socket.to(workspaceRoom(workspaceId)).emit('presence:left', { userId: user.id });
+        io.to(workspaceRoom(workspaceId)).emit('presence:left', { userId: user.id });
+        proximity.triggerWorkspace(workspaceId);
         await checkAutoUnlock(workspaceId, prevZoneId);
       }
+    };
+
+    socket.on('presence:leave', async () => {
+      await handleUserLeave();
+    });
+
+    socket.on('disconnect', async () => {
+      await handleUserLeave();
       logger.debug({ userId: user.id, socketId: socket.id }, 'socket disconnected');
     });
   });

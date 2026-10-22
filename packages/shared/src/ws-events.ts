@@ -54,6 +54,7 @@ export interface ProximityGroup {
 // ---- Client -> Server ----
 export interface ClientToServerEvents extends ScribbleClientEvents {
   'presence:join': (payload: { workspaceId: string }) => void;
+  'presence:leave': () => void;
   'presence:move': (payload: { position: Vec2 }) => void;
   'presence:status': (payload: { status: UserStatus }) => void;
   'zone:enter': (payload: { zoneId: string }) => void;

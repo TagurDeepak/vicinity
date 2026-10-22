@@ -20,6 +20,8 @@ async function bootstrap(): Promise<void> {
   const corsOrigin = env.CORS_ORIGINS.includes('*') ? true : env.CORS_ORIGINS;
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: { origin: corsOrigin, credentials: true },
+    pingInterval: 3000, // Frequent ping checks to detect severed connections quickly
+    pingTimeout: 4000,  // Drop dead sockets within 4s if client window terminates abruptly
   });
   // In multi-node deployments, fan out events via Redis. Skipped for the
   // in-memory dev mock (single node).

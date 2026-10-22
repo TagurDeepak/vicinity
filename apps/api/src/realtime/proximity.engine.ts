@@ -41,6 +41,10 @@ export class ProximityEngine {
     logger.debug({ workspaceId }, 'proximity: stopped tracking workspace');
   }
 
+  triggerWorkspace(workspaceId: string): void {
+    void this.tick(workspaceId);
+  }
+
   private async tick(workspaceId: string): Promise<void> {
     try {
       const presences = await getWorkspacePresence(workspaceId);

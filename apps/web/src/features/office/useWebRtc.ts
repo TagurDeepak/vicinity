@@ -41,6 +41,8 @@ export function useWebRtc() {
       },
     ];
 
+    let onPresenceLeft: ((p: { userId: string }) => void) | null = null;
+
     const initManager = (iceServers: RTCIceServer[]) => {
       if (cancelled) return;
       const manager = new MeshManager(socket, selfId, iceServers, {
@@ -52,6 +54,12 @@ export function useWebRtc() {
       socket.on('rtc:offer', (p) => void manager.handleOffer(p.fromUserId, p.sdp));
       socket.on('rtc:answer', (p) => void manager.handleAnswer(p.fromUserId, p.sdp));
       socket.on('rtc:ice-candidate', (p) => void manager.handleIce(p.fromUserId, p.candidate));
+
+      onPresenceLeft = (p: { userId: string }) => {
+        manager.closePeer(p.userId);
+        useMediaStore.getState().removeRemote(p.userId);
+      };
+      socket.on('presence:left', onPresenceLeft);
 
       if (localRef.current) {
         manager.setLocalStream(localRef.current);
@@ -66,11 +74,28 @@ export function useWebRtc() {
         initManager(fallbackIceServers);
       });
 
+    const handleUnload = () => {
+      try {
+        managerRef.current?.close();
+        localRef.current?.getTracks().forEach((t) => t.stop());
+      } catch {
+        // Ignored
+      }
+    };
+
+    window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
+
     return () => {
       cancelled = true;
+      window.removeEventListener('beforeunload', handleUnload);
+      window.removeEventListener('pagehide', handleUnload);
       socket.off('rtc:offer');
       socket.off('rtc:answer');
       socket.off('rtc:ice-candidate');
+      if (onPresenceLeft) {
+        socket.off('presence:left', onPresenceLeft);
+      }
       managerRef.current?.close();
       managerRef.current = null;
       localRef.current?.getTracks().forEach((t) => t.stop());

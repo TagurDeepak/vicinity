@@ -5,6 +5,7 @@ import { MOVE_EMIT_HZ, UserStatus, type Vec2 } from '@vicinity/shared';
 import { getSocket } from '@/lib/ws';
 import { useAuthStore } from '@/stores/auth';
 import { usePresenceStore } from '@/stores/presence';
+import { useMediaStore } from '@/stores/media';
 
 /**
  * Owns the realtime lifecycle for an office floor: connects the socket, joins
@@ -29,7 +30,10 @@ export function useOffice(workspaceId: string) {
       store.setPosition(p.userId, p.position);
     const onStatus = (p: { userId: string; status: UserStatus }) =>
       store.setStatus(p.userId, p.status);
-    const onLeft = (p: { userId: string }) => store.remove(p.userId);
+    const onLeft = (p: { userId: string }) => {
+      store.remove(p.userId);
+      useMediaStore.getState().removeRemote(p.userId);
+    };
     const onGroup = store.setGroup;
     const onZone = (p: { userId: string; zoneId: string | null }) =>
       store.setZone(p.userId, p.zoneId);
@@ -44,7 +48,26 @@ export function useOffice(workspaceId: string) {
 
     socket.emit('presence:join', { workspaceId });
 
+    const handleUnload = () => {
+      try {
+        socket.emit('presence:leave');
+        socket.disconnect();
+      } catch {
+        // Ignored
+      }
+    };
+
+    window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
+
     return () => {
+      window.removeEventListener('beforeunload', handleUnload);
+      window.removeEventListener('pagehide', handleUnload);
+      try {
+        socket.emit('presence:leave');
+      } catch {
+        // Ignored
+      }
       socket.off('presence:snapshot', onSnapshot);
       socket.off('presence:joined', onJoined);
       socket.off('presence:moved', onMoved);

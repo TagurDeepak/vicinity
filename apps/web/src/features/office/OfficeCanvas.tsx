@@ -202,6 +202,13 @@ export function OfficeCanvas({
 
   const [selectedUser, setSelectedUser] = useState<PresenceState | null>(null);
   const [waveToast, setWaveToast] = useState<string | null>(null);
+  const presenceUsers = usePresenceStore((s) => s.users);
+
+  useEffect(() => {
+    if (selectedUser && !presenceUsers[selectedUser.userId]) {
+      setSelectedUser(null);
+    }
+  }, [presenceUsers, selectedUser]);
 
   const lockedZoneIdsRef = useRef(lockedZoneIds);
   const onZoneEnterRef = useRef(onZoneEnter);

@@ -37,9 +37,36 @@ export function CallDock() {
     scrollContainerRef.current?.scrollBy({ left: 240, behavior: 'smooth' });
   };
 
-  const remoteEntries = Object.entries(remote);
+  // Only render remote tiles for users who are actively present in presenceStore
+  const activeRemoteEntries = Object.entries(remote).filter(([userId]) => Boolean(users[userId]));
   const localHasVideo = (localStream?.getVideoTracks().length ?? 0) > 0 || camOn || sharing;
-  const totalParticipants = 1 + remoteEntries.length;
+  const totalParticipants = 1 + activeRemoteEntries.length;
+
+  // Proactively prune any orphaned remote streams for users who left
+  useEffect(() => {
+    for (const userId of Object.keys(remote)) {
+      if (!users[userId]) {
+        useMediaStore.getState().removeRemote(userId);
+      }
+    }
+  }, [users, remote]);
+
+  // Clean up detached video and audio elements for peers who left
+  useEffect(() => {
+    for (const [userId, el] of remoteVideoEls.current.entries()) {
+      if (!remote[userId] || !users[userId]) {
+        el.srcObject = null;
+        remoteVideoEls.current.delete(userId);
+      }
+    }
+    for (const [userId, el] of remoteAudioEls.current.entries()) {
+      if (!remote[userId] || !users[userId]) {
+        el.srcObject = null;
+        el.pause();
+        remoteAudioEls.current.delete(userId);
+      }
+    }
+  }, [remote, users]);
 
   // Attach the local preview stream.
   useEffect(() => {
@@ -66,14 +93,14 @@ export function CallDock() {
 
   // Clear staged if peer disconnects.
   useEffect(() => {
-    if (staged && staged.id !== 'self' && !remote[staged.id]) {
+    if (staged && staged.id !== 'self' && (!remote[staged.id] || !users[staged.id])) {
       setStaged(null);
     }
-  }, [staged, remote]);
+  }, [staged, remote, users]);
 
   // Attach remote streams to their elements.
   useEffect(() => {
-    for (const [userId, stream] of Object.entries(remote)) {
+    for (const [userId, stream] of activeRemoteEntries) {
       const vEl = remoteVideoEls.current.get(userId);
       if (vEl && vEl.srcObject !== stream) {
         vEl.srcObject = stream;
@@ -85,7 +112,7 @@ export function CallDock() {
         aEl.play().catch(() => {});
       }
     }
-  }, [remote]);
+  }, [activeRemoteEntries]);
 
   // Browser Autoplay Policy listener: user interaction resumes any paused audio.
   useEffect(() => {
@@ -134,7 +161,7 @@ export function CallDock() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  const hasRemotes = remoteEntries.length > 0;
+  const hasRemotes = activeRemoteEntries.length > 0;
   const showDock = hasRemotes || localHasVideo || camOn || staged !== null;
 
   if (!showDock) return null;
@@ -258,7 +285,7 @@ export function CallDock() {
               </Tile>
 
               {/* Remote peers */}
-              {remoteEntries.map(([userId, stream]) => {
+              {activeRemoteEntries.map(([userId, stream]) => {
                 const name = users[userId]?.displayName ?? 'Guest';
                 const hasVideo = stream.getVideoTracks().length > 0;
                 return (

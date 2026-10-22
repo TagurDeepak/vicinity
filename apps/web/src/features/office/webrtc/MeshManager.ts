@@ -221,22 +221,53 @@ export class MeshManager {
       this.cb.onRemoteStream(peerId, stream);
     };
 
+    let disconnectTimer: NodeJS.Timeout | null = null;
     pc.onconnectionstatechange = () => {
-      if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
-        // Let syncGroup/leave handle cleanup; avoid tearing down on transient blips.
+      const state = pc.connectionState;
+      if (state === 'closed' || state === 'failed') {
+        if (disconnectTimer) clearTimeout(disconnectTimer);
+        this.closePeer(peerId);
+      } else if (state === 'disconnected') {
+        if (!disconnectTimer) {
+          disconnectTimer = setTimeout(() => {
+            if (
+              pc.connectionState === 'disconnected' ||
+              pc.connectionState === 'failed' ||
+              pc.connectionState === 'closed'
+            ) {
+              this.closePeer(peerId);
+            }
+          }, 1500);
+        }
+      } else if (state === 'connected') {
+        if (disconnectTimer) {
+          clearTimeout(disconnectTimer);
+          disconnectTimer = null;
+        }
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      if (state === 'closed' || state === 'failed') {
+        this.closePeer(peerId);
       }
     };
 
     return entry;
   }
 
-  private closePeer(peerId: string): void {
+  public closePeer(peerId: string): void {
     const entry = this.peers.get(peerId);
     if (!entry) return;
     entry.pc.onnegotiationneeded = null;
     entry.pc.onicecandidate = null;
     entry.pc.ontrack = null;
-    entry.pc.close();
+    entry.pc.onconnectionstatechange = null;
+    entry.pc.oniceconnectionstatechange = null;
+    try {
+      entry.pc.close();
+    } catch {}
     this.peers.delete(peerId);
     this.cb.onRemoteLeft(peerId);
   }
