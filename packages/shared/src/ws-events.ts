@@ -1,6 +1,7 @@
 import { ChatMessage, PresenceState, Vec2, Zone } from './models';
 import { UserStatus } from './enums';
 import type { GameClientInput, GameMapTheme, GameWorldState } from './game';
+import type { ScribbleClientEvents, ScribbleServerEvents } from './scribble';
 
 /**
  * Strongly-typed Socket.IO event contract shared by client and server.
@@ -51,7 +52,7 @@ export interface ProximityGroup {
 }
 
 // ---- Client -> Server ----
-export interface ClientToServerEvents {
+export interface ClientToServerEvents extends ScribbleClientEvents {
   'presence:join': (payload: { workspaceId: string }) => void;
   'presence:move': (payload: { position: Vec2 }) => void;
   'presence:status': (payload: { status: UserStatus }) => void;
@@ -109,7 +110,7 @@ export interface KnockPayload {
 }
 
 // ---- Server -> Client ----
-export interface ServerToClientEvents {
+export interface ServerToClientEvents extends ScribbleServerEvents {
   'presence:snapshot': (payload: { users: PresenceState[] }) => void;
   'presence:joined': (payload: PresenceState) => void;
   'presence:moved': (payload: { userId: string; position: Vec2 }) => void;

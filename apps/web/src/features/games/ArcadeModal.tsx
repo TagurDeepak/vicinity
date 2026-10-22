@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { MagicDuelCanvas } from './magic-duel/MagicDuelCanvas';
+import { ScribbleGame } from './scribble/ScribbleGame';
 import { usePresenceStore } from '@/stores/presence';
 
 export type GameTab = 'codenames' | 'skribbl' | 'jstris' | 'magic-duel';
@@ -21,7 +22,7 @@ export function ArcadeModal({
   workspaceId,
   zoneId,
   zoneName,
-  initialTab = 'codenames',
+  initialTab = 'skribbl',
 }: ArcadeModalProps) {
   const [activeTab, setActiveTab] = useState<GameTab>(initialTab);
   const defaultRoomCode = `vicinity-${workspaceId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6) || 'break'}`;
@@ -35,7 +36,6 @@ export function ArcadeModal({
   if (!isOpen) return null;
 
   const codenamesUrl = `https://codenames.game/room/${encodeURIComponent(codenamesRoom || defaultRoomCode)}`;
-  const skribblUrl = 'https://skribbl.io/';
   const jstrisUrl = 'https://jstris.jezevec10.com/';
 
   const handleLaunchGame = (url: string) => {
@@ -54,13 +54,13 @@ export function ArcadeModal({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md animate-in fade-in p-4 sm:p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md animate-in fade-in p-2 sm:p-4 md:p-6"
     >
-      <div className="relative flex h-[92vh] w-[96vw] max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl shadow-sky-950/50">
+      <div className="relative flex h-[94vh] w-[98vw] max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl shadow-sky-950/50">
         {/* Top Header */}
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900/95 px-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white font-bold text-base shadow-sm">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 to-indigo-600 text-white font-bold text-base shadow-sm">
               🎮
             </span>
             <div>
@@ -96,21 +96,6 @@ export function ArcadeModal({
         {/* Game Tabs Navigation */}
         <div className="flex h-12 shrink-0 items-center gap-1 border-b border-slate-800/80 bg-slate-900/60 px-4 sm:px-6 overflow-x-auto">
           <button
-            onClick={() => setActiveTab('codenames')}
-            className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition ${
-              activeTab === 'codenames'
-                ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300 shadow-sm'
-                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-            }`}
-          >
-            <span>🕵️</span>
-            <span>Codenames</span>
-            <span className="rounded bg-amber-500/20 px-1.5 py-0.2 text-[9px] text-amber-300 font-extrabold uppercase">
-              Party
-            </span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('skribbl')}
             className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition ${
               activeTab === 'skribbl'
@@ -119,24 +104,9 @@ export function ArcadeModal({
             }`}
           >
             <span>🎨</span>
-            <span>Skribbl.io</span>
-            <span className="rounded bg-rose-500/20 px-1.5 py-0.2 text-[9px] text-rose-300 font-extrabold uppercase">
-              Draw
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('jstris')}
-            className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition ${
-              activeTab === 'jstris'
-                ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 shadow-sm'
-                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-            }`}
-          >
-            <span>🧱</span>
-            <span>Jstris</span>
-            <span className="rounded bg-cyan-500/20 px-1.5 py-0.2 text-[9px] text-cyan-300 font-extrabold uppercase">
-              Tetris
+            <span>Scribble (Pictionary)</span>
+            <span className="rounded bg-rose-500/30 px-1.5 py-0.2 text-[9px] text-rose-200 font-black uppercase">
+              Native Live
             </span>
           </button>
 
@@ -154,11 +124,61 @@ export function ArcadeModal({
               1v1 PvP
             </span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('codenames')}
+            className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition ${
+              activeTab === 'codenames'
+                ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300 shadow-sm'
+                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+            }`}
+          >
+            <span>🕵️</span>
+            <span>Codenames</span>
+            <span className="rounded bg-amber-500/20 px-1.5 py-0.2 text-[9px] text-amber-300 font-extrabold uppercase">
+              Party
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('jstris')}
+            className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition ${
+              activeTab === 'jstris'
+                ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 shadow-sm'
+                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+            }`}
+          >
+            <span>🧱</span>
+            <span>Jstris</span>
+            <span className="rounded bg-cyan-500/20 px-1.5 py-0.2 text-[9px] text-cyan-300 font-extrabold uppercase">
+              Tetris
+            </span>
+          </button>
         </div>
 
         {/* Modal Main Body */}
-        <div className="relative flex-1 overflow-y-auto bg-slate-950/70 p-4 sm:p-6">
-          {/* TAB 1: CODENAMES */}
+        <div
+          className={`relative flex-1 ${
+            activeTab === 'magic-duel' || activeTab === 'skribbl'
+              ? 'overflow-hidden p-0'
+              : 'overflow-y-auto bg-slate-950/70 p-4 sm:p-6'
+          }`}
+        >
+          {/* TAB 1: NATIVE SCRIBBLE (DRAW & GUESS) */}
+          {activeTab === 'skribbl' && (
+            <div className="h-full w-full">
+              <ScribbleGame workspaceId={workspaceId} zoneId={zoneId} onClose={onClose} />
+            </div>
+          )}
+
+          {/* TAB 2: MAGIC DUEL ARENA */}
+          {activeTab === 'magic-duel' && (
+            <div className="h-full w-full">
+              <MagicDuelCanvas workspaceId={workspaceId} zoneId={zoneId} onClose={onClose} />
+            </div>
+          )}
+
+          {/* TAB 3: CODENAMES */}
           {activeTab === 'codenames' && (
             <div className="mx-auto max-w-3xl flex flex-col gap-6 py-2 animate-in fade-in duration-200">
               {/* Hero Banner */}
@@ -284,61 +304,7 @@ export function ArcadeModal({
             </div>
           )}
 
-          {/* TAB 2: SKRIBBL.IO */}
-          {activeTab === 'skribbl' && (
-            <div className="mx-auto max-w-3xl flex flex-col gap-6 py-2 animate-in fade-in duration-200">
-              <div className="rounded-2xl border border-rose-500/30 bg-gradient-to-r from-rose-950/40 via-slate-900 to-rose-900/20 p-6 shadow-xl">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/20 px-2.5 py-0.5 text-xs font-semibold text-rose-300">
-                      🎨 Multiplayer Drawing & Guessing
-                    </span>
-                    <h2 className="mt-2 text-2xl font-black text-white tracking-wide">
-                      Skribbl.io (Pictionary)
-                    </h2>
-                    <p className="mt-1 text-sm text-slate-300 leading-relaxed">
-                      One player draws a secret word on canvas, while everyone else races to guess it in chat. 
-                      Produces hilarious drawings and lots of laughs!
-                    </p>
-                  </div>
-                  <div className="hidden sm:flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-rose-500/20 border border-rose-500/40 text-3xl shadow-inner">
-                    ✏️
-                  </div>
-                </div>
-
-                <div className="mt-6 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                  <button
-                    onClick={() => handleLaunchGame(skribblUrl)}
-                    className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 px-6 py-3 text-sm font-black text-white shadow-lg shadow-rose-500/25 hover:from-rose-400 hover:to-rose-500 transition active:scale-95"
-                  >
-                    <span>🚀 Launch Skribbl.io in New Tab</span>
-                  </button>
-                  <button
-                    onClick={() => handleCopyLink(skribblUrl)}
-                    className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-xs font-bold text-slate-200 hover:bg-slate-700 hover:text-white transition"
-                  >
-                    <span>📋 Copy Skribbl Link</span>
-                  </button>
-                </div>
-                <p className="mt-3 text-[11px] text-slate-400">
-                  💡 Inside Skribbl, click <strong>&quot;Create Private Room&quot;</strong> and share the link with your coworkers here!
-                </p>
-              </div>
-
-              {/* Voice reminder */}
-              <div className="flex items-center gap-3 rounded-xl border border-sky-500/30 bg-sky-950/30 px-4 py-3 text-xs text-sky-200">
-                <span className="text-xl">🎙️</span>
-                <div>
-                  <span className="font-bold text-sky-300">Proximity Voice is Connected</span>
-                  <p className="text-slate-300 text-[11px] mt-0.5">
-                    Talk and guess together out loud while drawing!
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: JSTRIS (TETRIS) */}
+          {/* TAB 4: JSTRIS (TETRIS) */}
           {activeTab === 'jstris' && (
             <div className="mx-auto max-w-3xl flex flex-col gap-6 py-2 animate-in fade-in duration-200">
               <div className="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-950/40 via-slate-900 to-cyan-900/20 p-6 shadow-xl">
@@ -375,13 +341,6 @@ export function ArcadeModal({
                   </button>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* TAB 4: MAGIC DUEL ARENA */}
-          {activeTab === 'magic-duel' && (
-            <div className="h-full w-full -m-4 sm:-m-6">
-              <MagicDuelCanvas workspaceId={workspaceId} zoneId={zoneId} onClose={onClose} />
             </div>
           )}
         </div>

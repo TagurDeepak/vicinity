@@ -8,6 +8,7 @@ import type { SocketUser } from './socket-auth';
 import * as presence from './redis-state.service';
 import { registerSignaling } from './signaling';
 import { MagicDuelEngine } from './magic-duel.engine';
+import { ScribbleEngine } from './scribble.engine';
 
 interface LockedRoom {
   zoneId: string;
@@ -23,9 +24,11 @@ const lockedRooms = new Map<string, Map<string, LockedRoom>>();
  */
 export function registerGateway(io: VicinityServer, proximity: ProximityEngine): void {
   const magicDuel = new MagicDuelEngine(io);
+  const scribble = new ScribbleEngine(io);
 
   io.on('connection', (socket) => {
     let activeGameRoom: { workspaceId: string; zoneId: string } | null = null;
+    let activeScribbleRoom: { workspaceId: string; zoneId: string } | null = null;
     const user = socket.data.user as SocketUser;
     // Personal room → lets signaling / proximity target this user directly.
     void socket.join(userRoom(user.id));
@@ -234,10 +237,51 @@ export function registerGateway(io: VicinityServer, proximity: ProximityEngine):
       magicDuel.rematch(workspaceId, zoneId, user.id);
     });
 
+    // Scribble game events
+    socket.on('scribble:join', ({ workspaceId, zoneId }) => {
+      activeScribbleRoom = { workspaceId, zoneId };
+      scribble.join(workspaceId, zoneId, user.id, user.displayName, user.avatarUrl, socket);
+    });
+
+    socket.on('scribble:leave', ({ workspaceId, zoneId }) => {
+      if (activeScribbleRoom?.workspaceId === workspaceId && activeScribbleRoom?.zoneId === zoneId) {
+        activeScribbleRoom = null;
+      }
+      scribble.leave(workspaceId, zoneId, user.id);
+    });
+
+    socket.on('scribble:start', ({ workspaceId, zoneId, rounds, turnDuration }) => {
+      scribble.start(workspaceId, zoneId, user.id, rounds, turnDuration);
+    });
+
+    socket.on('scribble:choose-word', ({ workspaceId, zoneId, word }) => {
+      scribble.chooseWord(workspaceId, zoneId, user.id, word);
+    });
+
+    socket.on('scribble:draw-stroke', ({ workspaceId, zoneId, stroke }) => {
+      scribble.drawStroke(workspaceId, zoneId, user.id, stroke);
+    });
+
+    socket.on('scribble:clear-canvas', ({ workspaceId, zoneId }) => {
+      scribble.clearCanvas(workspaceId, zoneId, user.id);
+    });
+
+    socket.on('scribble:undo', ({ workspaceId, zoneId }) => {
+      scribble.undo(workspaceId, zoneId, user.id);
+    });
+
+    socket.on('scribble:guess', ({ workspaceId, zoneId, text }) => {
+      scribble.guess(workspaceId, zoneId, user.id, text);
+    });
+
     socket.on('disconnect', async () => {
       if (activeGameRoom) {
         magicDuel.leaveGame(activeGameRoom.workspaceId, activeGameRoom.zoneId, user.id);
         activeGameRoom = null;
+      }
+      if (activeScribbleRoom) {
+        scribble.leave(activeScribbleRoom.workspaceId, activeScribbleRoom.zoneId, user.id);
+        activeScribbleRoom = null;
       }
       const workspaceId = (socket.data.user as SocketUser).workspaceId;
       if (workspaceId) {
