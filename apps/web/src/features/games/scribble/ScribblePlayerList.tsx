@@ -19,7 +19,8 @@ export function ScribblePlayerList({
 
   if (!roomState) return null;
 
-  const isHost = roomState.hostId === currentUserId;
+  const myId = roomState.myPlayerId || currentUserId;
+  const isHost = roomState.hostId === myId || roomState.hostId === currentUserId;
   const sortedPlayers = [...roomState.players].sort((a, b) => b.score - a.score);
   const hostPlayer = roomState.players.find((p) => p.userId === roomState.hostId);
 
@@ -38,8 +39,10 @@ export function ScribblePlayerList({
       {/* Players List */}
       <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
         {sortedPlayers.map((player, idx) => {
-          const isMe = player.userId === currentUserId;
-          const isDrawer = player.isDrawing && roomState.state === 'DRAWING';
+          const isMe = player.userId === myId || player.userId === currentUserId;
+          const isDrawer =
+            (player.isDrawing || player.userId === roomState.currentDrawerId) &&
+            (roomState.state === 'DRAWING' || roomState.state === 'SELECTING_WORD');
           const hasGuessed = player.hasGuessed && roomState.state === 'DRAWING';
 
           return (

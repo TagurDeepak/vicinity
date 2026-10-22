@@ -53,6 +53,8 @@ export interface ScribbleRoomState {
   strokes: ScribbleDrawStroke[];
   messages: ScribbleMessage[];
   hostId: string;
+  myPlayerId?: string;
+  isCurrentDrawer?: boolean;
 }
 
 // Client -> Server events

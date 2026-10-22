@@ -19,9 +19,14 @@ export function ScribbleChat({
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  const isDrawer =
-    roomState?.state === 'DRAWING' && roomState?.currentDrawerId === currentUserId;
-  const localPlayer = roomState?.players.find((p) => p.userId === currentUserId);
+  const myId = roomState?.myPlayerId || currentUserId;
+  const isDrawer = Boolean(
+    roomState?.isCurrentDrawer ||
+    (roomState?.wordChoices && roomState.wordChoices.length > 0) ||
+    (roomState?.currentDrawerId && (roomState.currentDrawerId === myId || roomState.currentDrawerId === currentUserId)) ||
+    (roomState?.state === 'DRAWING' && Boolean(roomState?.revealedWord))
+  );
+  const localPlayer = roomState?.players.find((p) => p.userId === myId || p.userId === currentUserId);
   const hasGuessed = localPlayer?.hasGuessed ?? false;
 
   useEffect(() => {

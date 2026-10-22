@@ -55,8 +55,22 @@ export function ScribbleCanvas({
   const isDrawingRef = useRef<boolean>(false);
   const currentPointsRef = useRef<ScribbleDrawPoint[]>([]);
 
-  const isDrawer =
-    roomState?.state === 'DRAWING' && roomState?.currentDrawerId === currentUserId;
+  const myId = roomState?.myPlayerId || currentUserId;
+
+  // Determining drawer roles
+  const hasWordChoices = Boolean(roomState?.wordChoices && roomState.wordChoices.length > 0);
+  const isSelectedDrawer = Boolean(
+    roomState?.isCurrentDrawer ||
+    hasWordChoices ||
+    (roomState?.currentDrawerId && (roomState.currentDrawerId === myId || roomState.currentDrawerId === currentUserId))
+  );
+
+  const isSelectingWordForMe = roomState?.state === 'SELECTING_WORD' && (isSelectedDrawer || hasWordChoices);
+  const isSelectingWordForOthers = roomState?.state === 'SELECTING_WORD' && !isSelectingWordForMe;
+
+  const isDrawingActive =
+    roomState?.state === 'DRAWING' &&
+    (isSelectedDrawer || Boolean(roomState?.revealedWord));
 
   // Redraw all strokes onto canvas
   const redrawAllStrokes = useCallback((strokes: ScribbleDrawStroke[]) => {
@@ -162,7 +176,7 @@ export function ScribbleCanvas({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawer) return;
+    if (!isDrawingActive) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     isDrawingRef.current = true;
     const pt = getCanvasCoords(e);
@@ -184,7 +198,7 @@ export function ScribbleCanvas({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawingRef.current || !isDrawer) return;
+    if (!isDrawingRef.current || !isDrawingActive) return;
     const pt = getCanvasCoords(e);
     currentPointsRef.current.push(pt);
 
@@ -207,7 +221,7 @@ export function ScribbleCanvas({
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawingRef.current || !isDrawer) return;
+    if (!isDrawingRef.current || !isDrawingActive) return;
     isDrawingRef.current = false;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -240,45 +254,83 @@ export function ScribbleCanvas({
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
           className={`w-full h-full touch-none ${
-            isDrawer ? (isEraser ? 'cursor-cell' : 'cursor-crosshair') : 'cursor-default'
+            isDrawingActive ? (isEraser ? 'cursor-cell' : 'cursor-crosshair') : 'cursor-default'
           }`}
         />
 
-        {/* Word Selection Overlay for the Artist */}
-        {roomState?.state === 'SELECTING_WORD' && isDrawer && roomState.wordChoices && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-sm p-6 text-center animate-in fade-in">
-            <span className="text-3xl mb-2">🎨</span>
-            <h3 className="text-xl font-black text-white tracking-wide">
+        {/* HUD: Word Prominently Visible on Canvas for the Artist */}
+        {isDrawingActive && roomState?.revealedWord && (
+          <div className="absolute top-3 left-3 z-10 flex items-center gap-2 rounded-xl border border-rose-500/60 bg-slate-950/95 px-4 py-2 shadow-2xl backdrop-blur-md animate-in fade-in">
+            <span className="text-xs font-black text-rose-400 uppercase tracking-wider">
+              ✏️ Word to Draw:
+            </span>
+            <span className="font-mono text-base font-black text-white tracking-widest uppercase">
+              {roomState.revealedWord}
+            </span>
+          </div>
+        )}
+
+        {/* HUD: Masked Word on Canvas for Guessers */}
+        {roomState?.state === 'DRAWING' && !isDrawingActive && (
+          <div className="absolute top-3 left-3 z-10 flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-slate-950/90 px-4 py-2 shadow-2xl backdrop-blur-md animate-in fade-in">
+            <span className="text-xs font-black text-emerald-400 uppercase tracking-wider">
+              Guess Word:
+            </span>
+            <span className="font-mono text-base font-black text-emerald-300 tracking-widest">
+              {roomState.maskedWord}
+            </span>
+            <span className="text-[11px] font-bold text-slate-400">
+              ({roomState.wordLength} letters)
+            </span>
+          </div>
+        )}
+
+        {/* Word Selection Modal Overlay for the Artist */}
+        {isSelectingWordForMe && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-md p-6 text-center animate-in fade-in">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 to-amber-500 text-3xl shadow-lg shadow-rose-500/25 mb-3 animate-bounce">
+              🎨
+            </div>
+            <h3 className="text-2xl font-black text-white tracking-wide">
               Choose a Word to Draw!
             </h3>
-            <p className="text-xs text-slate-400 mt-1 mb-6">
-              Pick one of the 3 secret words. Hurry, timer is ticking!
+            <p className="text-xs text-rose-300 font-bold mt-1 mb-6">
+              Pick one of the 3 secret options below to start drawing:
             </p>
-            <div className="flex flex-wrap items-center justify-center gap-4 max-w-lg">
-              {roomState.wordChoices.map((word) => (
+            <div className="flex flex-wrap items-center justify-center gap-4 max-w-xl">
+              {(roomState?.wordChoices && roomState.wordChoices.length > 0
+                ? roomState.wordChoices
+                : ['cat', 'pizza', 'guitar']
+              ).map((word) => (
                 <button
                   key={word}
+                  type="button"
                   onClick={() => onChooseWord(word)}
-                  className="rounded-xl border border-rose-500/40 bg-gradient-to-b from-rose-500/20 to-rose-600/30 px-6 py-4 text-base font-black text-white tracking-wider uppercase shadow-lg shadow-rose-500/20 hover:scale-105 hover:bg-rose-500 hover:text-white transition active:scale-95"
+                  className="group relative flex flex-col items-center justify-center rounded-2xl border-2 border-rose-500/50 bg-gradient-to-b from-rose-950/70 to-slate-900 px-8 py-5 shadow-xl shadow-rose-950/50 hover:scale-105 hover:border-rose-400 hover:bg-rose-600 transition duration-150 active:scale-95 cursor-pointer"
                 >
-                  {word}
+                  <span className="text-xl font-black text-white tracking-widest uppercase group-hover:text-white">
+                    {word}
+                  </span>
+                  <span className="text-[10px] font-bold text-rose-300 group-hover:text-rose-100 mt-1">
+                    Click to choose ({word.length} letters)
+                  </span>
                 </button>
               ))}
             </div>
-            <div className="mt-6 flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900 px-4 py-1.5 text-xs font-semibold text-rose-300">
-              <span>⏱️ Auto-selecting in {roomState.timeRemaining}s</span>
+            <div className="mt-6 flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/90 px-4 py-2 text-xs font-bold text-amber-300 shadow">
+              <span>⏱️ Auto-selecting choice #1 in {roomState?.timeRemaining ?? 15}s</span>
             </div>
           </div>
         )}
 
         {/* Word Selection Overlay for Guessers */}
-        {roomState?.state === 'SELECTING_WORD' && !isDrawer && (
+        {isSelectingWordForOthers && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-sm p-6 text-center animate-in fade-in">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-500/20 border border-rose-500/40 text-3xl mb-4 animate-bounce">
               ✏️
             </div>
             <h3 className="text-lg font-bold text-white">
-              {roomState.currentDrawerName || 'The artist'} is choosing a word...
+              {roomState?.currentDrawerName || 'The artist'} is choosing a word...
             </h3>
             <p className="text-xs text-slate-400 mt-1">Get ready to guess in chat!</p>
           </div>
@@ -332,7 +384,7 @@ export function ScribbleCanvas({
                         {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
                       </span>
                       <span className="font-bold text-sm truncate max-w-[150px]">
-                        {p.displayName} {p.userId === currentUserId && '(You)'}
+                        {p.displayName} {(p.userId === myId || p.userId === currentUserId) && '(You)'}
                       </span>
                     </div>
                     <span className="font-extrabold text-sm">{p.score} pts</span>
@@ -344,13 +396,14 @@ export function ScribbleCanvas({
       </div>
 
       {/* Artist Drawing Toolbar */}
-      {isDrawer && (
+      {isDrawingActive && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 w-full rounded-xl border border-slate-700/80 bg-slate-900/95 px-4 py-2.5 shadow-lg">
           {/* Color Palette */}
           <div className="flex items-center gap-1.5 flex-wrap">
             {PALETTE_COLORS.map((col) => (
               <button
                 key={col}
+                type="button"
                 onClick={() => {
                   setCurrentColor(col);
                   setIsEraser(false);
@@ -371,6 +424,7 @@ export function ScribbleCanvas({
             {BRUSH_SIZES.map((b) => (
               <button
                 key={b.label}
+                type="button"
                 onClick={() => setCurrentSize(b.size)}
                 className={`px-2 py-1 text-xs font-bold rounded-md transition ${
                   currentSize === b.size
@@ -386,6 +440,7 @@ export function ScribbleCanvas({
           {/* Action Tools: Eraser, Undo, Clear */}
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={() => setIsEraser(!isEraser)}
               className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold border transition ${
                 isEraser
@@ -399,6 +454,7 @@ export function ScribbleCanvas({
             </button>
 
             <button
+              type="button"
               onClick={onUndo}
               className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs font-bold text-slate-300 hover:bg-slate-700 hover:text-white transition"
               title="Undo last stroke"
@@ -408,6 +464,7 @@ export function ScribbleCanvas({
             </button>
 
             <button
+              type="button"
               onClick={onClearCanvas}
               className="flex items-center gap-1 rounded-lg border border-red-500/40 bg-red-950/30 px-2.5 py-1.5 text-xs font-bold text-red-300 hover:bg-red-900/50 hover:text-white transition"
               title="Clear entire canvas"

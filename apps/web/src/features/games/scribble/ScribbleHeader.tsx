@@ -11,8 +11,14 @@ interface ScribbleHeaderProps {
 export function ScribbleHeader({ roomState, currentUserId, isConnected = true }: ScribbleHeaderProps) {
   if (!roomState) return null;
 
-  const isDrawer =
-    roomState.state === 'DRAWING' && roomState.currentDrawerId === currentUserId;
+  const myId = roomState.myPlayerId || currentUserId;
+  const isDrawer = Boolean(
+    roomState.isCurrentDrawer ||
+    (roomState.wordChoices && roomState.wordChoices.length > 0) ||
+    (roomState.currentDrawerId && (roomState.currentDrawerId === myId || roomState.currentDrawerId === currentUserId)) ||
+    (roomState.state === 'DRAWING' && Boolean(roomState.revealedWord))
+  );
+
   const isUrgent = roomState.timeRemaining <= 10 && roomState.state === 'DRAWING';
 
   return (
@@ -49,33 +55,55 @@ export function ScribbleHeader({ roomState, currentUserId, isConnected = true }:
 
       {/* Secret Word Display (or Masked Hint for Guessers) */}
       <div className="flex items-center gap-2">
-        {roomState.state === 'DRAWING' && (
-          <div className="flex items-center gap-2 rounded-xl border border-slate-700/80 bg-slate-950/80 px-4 py-1.5 shadow-inner">
-            {isDrawer ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-slate-400 uppercase">Draw:</span>
-                <span className="font-mono text-base font-black text-rose-400 tracking-wider">
-                  {roomState.revealedWord?.toUpperCase()}
-                </span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-lg font-black tracking-widest text-emerald-300">
-                  {roomState.maskedWord}
-                </span>
-                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
-                  {roomState.wordLength} letters
-                </span>
-              </div>
-            )}
-          </div>
+        {/* State: SELECTING_WORD */}
+        {roomState.state === 'SELECTING_WORD' && (
+          isDrawer ? (
+            <div className="flex items-center gap-2 rounded-xl border border-rose-500/50 bg-rose-950/40 px-4 py-1.5 animate-pulse">
+              <span className="text-xs font-black text-rose-300 uppercase tracking-wide">
+                👉 Select 1 of the 3 words on the canvas!
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-1.5">
+              <span className="text-xs text-slate-400 font-semibold">
+                {roomState.currentDrawerName || 'Artist'} is picking a word...
+              </span>
+            </div>
+          )
         )}
 
+        {/* State: DRAWING */}
+        {roomState.state === 'DRAWING' && (
+          isDrawer ? (
+            <div className="flex items-center gap-2.5 rounded-xl border-2 border-rose-500/60 bg-gradient-to-r from-rose-950/80 via-slate-900 to-rose-950/80 px-5 py-1.5 shadow-lg shadow-rose-950/50">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-[10px] text-white font-black">
+                ✏️
+              </span>
+              <span className="text-xs font-black text-rose-300 uppercase tracking-wider">
+                Draw:
+              </span>
+              <span className="font-mono text-base font-black text-white tracking-widest uppercase">
+                {roomState.revealedWord || 'Choose word'}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-xl border border-slate-700/80 bg-slate-950/80 px-4 py-1.5 shadow-inner">
+              <span className="font-mono text-lg font-black tracking-widest text-emerald-300">
+                {roomState.maskedWord}
+              </span>
+              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
+                {roomState.wordLength} letters
+              </span>
+            </div>
+          )
+        )}
+
+        {/* State: ROUND_END */}
         {roomState.state === 'ROUND_END' && roomState.revealedWord && (
-          <div className="flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-950/30 px-4 py-1.5">
-            <span className="text-xs text-slate-400">Word:</span>
-            <span className="font-mono text-base font-black text-emerald-300 tracking-wider">
-              {roomState.revealedWord.toUpperCase()}
+          <div className="flex items-center gap-2.5 rounded-xl border-2 border-emerald-500/50 bg-emerald-950/50 px-5 py-1.5 shadow-lg">
+            <span className="text-xs font-bold text-emerald-300 uppercase">Word was:</span>
+            <span className="font-mono text-base font-black text-white tracking-wider uppercase">
+              {roomState.revealedWord}
             </span>
           </div>
         )}

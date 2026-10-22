@@ -282,7 +282,7 @@ export class ScribbleEngine {
     // Pick 3 random words from dictionary
     const shuffled = [...DEFAULT_DICTIONARY].sort(() => 0.5 - Math.random());
     room.wordChoices = shuffled.slice(0, 3);
-    room.timeRemaining = 12; // 12 seconds to pick
+    room.timeRemaining = 15; // 15 seconds to pick
 
     this.sendSystemMessage(room, `${drawer.displayName} is choosing a word...`);
     this.syncRoom(room);
@@ -587,21 +587,18 @@ export class ScribbleEngine {
     for (const player of room.players.values()) {
       if (!player.isConnected || !player.socket) continue;
 
-      if (player.userId === room.currentDrawerId) {
-        player.socket.emit('scribble:state', {
-          ...baseState,
-          wordChoices: room.state === 'SELECTING_WORD' ? room.wordChoices : undefined,
-          revealedWord: room.currentWord || null,
-        });
-      } else {
-        player.socket.emit('scribble:state', {
-          ...baseState,
-          wordChoices: undefined,
-          // Only show revealedWord after round end or game over
-          revealedWord:
-            room.state === 'ROUND_END' || room.state === 'GAME_OVER' ? room.currentWord : null,
-        });
-      }
+      const isDrawer = player.userId === room.currentDrawerId;
+      player.socket.emit('scribble:state', {
+        ...baseState,
+        myPlayerId: player.userId,
+        isCurrentDrawer: isDrawer,
+        wordChoices: isDrawer && room.state === 'SELECTING_WORD' ? room.wordChoices : undefined,
+        revealedWord: isDrawer
+          ? room.currentWord || null
+          : room.state === 'ROUND_END' || room.state === 'GAME_OVER'
+          ? room.currentWord
+          : null,
+      });
     }
   }
 
